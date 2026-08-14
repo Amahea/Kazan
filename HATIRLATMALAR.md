@@ -158,7 +158,9 @@ yazıyor. 2026'da şu günler işaretli:
 
 ### Yeni ekran: Özel Günler
 
-Menüde **Tahmin**'in yanında. Üç işe yarıyor:
+**Tahmin** sayfasının altındaki "Özel gün takvimini aç" bağlantısından açılıyor
+*(14 Ağustos 2026'da menü sadeleştirildi, artık üst menüde ayrı durmuyor)*.
+Üç işe yarıyor:
 
 1. **Takvimi görürsün** — hangi gün hangi etikete bağlı.
 2. **Kapatabilirsin** — dükkânda fark yaratmayan bir günü kapat, model onu
@@ -258,3 +260,62 @@ dükkânda internet kesilirse satış giremezsin — yerelde bu sorun yoktu.
       bu dosyayı da `.gitignore`'a ekle.
 - [ ] **İsimleri "Kazan"a çevir** — dosyaların içinde hâlâ "Dükkan Takip
       Programı" yazıyor.
+
+---
+
+## 5. Kullanıcı girişi ve çıkışı
+
+*14 Ağustos 2026'da eklendi.*
+
+Şu an tek bir şifre var: bilen girer, giren her şeyi görür ve değiştirir.
+Kimin ne yaptığı hiçbir yerde yazmıyor. Dükkânda senden başka biri de satış
+giriyorsa bu yetmez.
+
+**Yapılacak:** kullanıcı adı + şifre ile giriş, her kişinin kendi hesabı.
+
+- [ ] **Kullanıcı tablosu** — ad, şifre özeti, rol. `guvenlik.py` zaten şifre
+      özetlemeyi ve oturum çerezini biliyor; üstüne kullanıcı kavramı eklenecek.
+- [ ] **Giriş ekranı kullanıcı adı da sorsun** — bugün sadece şifre soruyor.
+- [ ] **Kayıtlara "kim girdi" bilgisi** — satışı, üretimi, alımı kimin
+      girdiği görünsün. Yanlış bir kayıt çıktığında kime soracağın belli olur.
+- [ ] **Rol ayrımı** — *çalışan* sadece satış ve üretim girer; *sahibi* kasayı,
+      kârı, fiyatları ve ayarları da görür. Asıl faydası bu: çalışanın
+      tedarikçi fiyatlarını ve günlük kârı görmesi gerekmiyor.
+- [ ] **Çıkış** — bugün de var ama tek şifreli olduğu için "kim çıktı" diye bir
+      şey yok; kullanıcı gelince anlamlı hale gelir.
+
+**Not:** Şifre bugün olduğu gibi isteğe bağlı kalmalı. Tek başına çalıştığın
+dükkânda her sabah kullanıcı adı yazmak angarya olur.
+
+---
+
+## 6. 1 Ocak'tan itibaren simülasyon verisi girilecek
+
+*14 Ağustos 2026'da eklendi.*
+
+Tahmin çalışmıyor çünkü **öğrenecek satış yok** (bkz. madde 2). Gerçek satışları
+girmeye yeni başlıyoruz; bu haliyle ciro tahmini en erken 10 gün, hafta
+içi/hafta sonu ayrımı 28 gün sonra devreye girer.
+
+Bunu beklememek için **1 Ocak 2026'dan bugüne kadar** gerçeğe yakın uydurma
+(simülasyon) satış verisi girilecek. Model hemen çalışmaya başlar, ekranların
+dolu hâli görünür, hava-ciro ilişkisi test edilebilir.
+
+- [ ] **Veri üretecek bir script yaz** — her gün için ciro ve ürün kırılımı.
+      Uydurma olsa da tutarlı olmalı: sıcak günde daha çok, yağmurda daha az,
+      hafta sonu daha çok, bayramda çok daha çok satış. Hava verisi zaten
+      `hava` tablosunda duruyor, arşivden geçmiş günler de çekilebiliyor.
+- [ ] **Kararı önce ver: bu veri gerçek defterle karışacak mı?**
+      Simülasyon satışları kasayı, ciroyu, kârı ve stok hareketlerini de
+      değiştirir. Yani "kasada ne var" sorusunun cevabı artık gerçek olmaz.
+      İki yol var:
+      1. **Ayrı bir veritabanı** (`simulasyon.db`) — gerçek defter temiz kalır,
+         program `DUKKAN_VERITABANI` ile o dosyaya bağlanır. *Önerilen yol.*
+      2. **Aynı defter, sonra silinir** — hızlı ama silme işini unutursan
+         rakamlar kalıcı olarak yanlış kalır.
+- [ ] **Girmeden önce yedek al** — `veri.db` dosyasını kopyala. Program zaten
+      `yedek-TARIH.db` diye kopya bırakıyor, ama bu sefer bilerek al.
+
+**Bittiğinde:** simülasyon verisi silinip gerçek satışlarla devam edilecekse,
+tahmin modeli sıfırdan öğrenmeye başlar — bu normaldir, veri gidince öğrendiği
+de gider.

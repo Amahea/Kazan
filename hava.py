@@ -51,9 +51,43 @@ YAGMURLU_KODLAR = {
     "HKY", "KYY", "YKY", "DY",
 }
 
+# Her hadise kodunun simgesi. Yazi okunmadan da havanin ne oldugu anlasilsin
+# diye; listede olmayan kodda simge cizilmez, program yine calisir.
+SIMGELER = {
+    "A": "☀️", "AB": "🌤️", "HHY": "🌤️", "PB": "⛅", "CB": "☁️",
+    "HY": "🌦️", "Y": "🌧️", "KY": "🌧️",
+    "SY": "🌦️", "HSY": "🌦️", "KSY": "🌧️", "MSY": "🌦️",
+    "GSY": "⛈️", "KGY": "⛈️",
+    "KKY": "🌨️", "HKY": "🌨️", "KYY": "❄️", "YKY": "❄️", "DY": "🧊",
+    "SIS": "🌫️", "PUS": "🌫️", "DMN": "🌫️", "TOZ": "🌫️",
+    "R": "💨", "GKR": "💨", "KKR": "💨", "SCK": "🔥", "SGK": "🥶",
+}
+
 
 def hadise_metni(kod):
     return HADISELER.get((kod or "").upper(), (kod or "").lower())
+
+
+def simge(satir):
+    """Bir hava satirinin simgesi. Hadise kodu yoksa (Open-Meteo kayitlari)
+    yagisli olup olmamasina bakilir."""
+    if satir is None:
+        return ""
+    kod = (satir["hadise"] or "").upper()
+    if kod in SIMGELER:
+        return SIMGELER[kod]
+    return "🌧️" if satir["yagmurlu"] else "☀️"
+
+
+def ihtimal(satir):
+    """Yagis ihtimali yuzdesi; bilinmiyorsa None."""
+    if satir is None:
+        return None
+    try:
+        deger = satir["yagis_ihtimal"]
+    except (KeyError, IndexError):
+        return None
+    return None if deger is None else int(round(deger))
 
 
 def _bugun():
@@ -158,18 +192,22 @@ def yaz(baglanti, tarih, kaynak, tahmin=1, **degerler):
     yagmurlu = int(
         hadise.upper() in YAGMURLU_KODLAR or (yagis is not None and yagis >= 1.0)
     )
+    # yagis_ihtimal'de COALESCE var: MGM yuzde vermez, o alani bos gonderir.
+    # Bos deger daha once Open-Meteo'dan alinmis yuzdeyi silmesin diye eskisi korunur.
     baglanti.execute(
         "INSERT INTO hava (tarih, en_yuksek, en_dusuk, yagis, ruzgar, nem, hadise,"
-        " yagmurlu, tahmin, kaynak, guncelleme)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        " yagmurlu, yagis_ihtimal, tahmin, kaynak, guncelleme)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         " ON CONFLICT(tarih) DO UPDATE SET en_yuksek = excluded.en_yuksek,"
         " en_dusuk = excluded.en_dusuk, yagis = excluded.yagis,"
         " ruzgar = excluded.ruzgar, nem = excluded.nem, hadise = excluded.hadise,"
-        " yagmurlu = excluded.yagmurlu, tahmin = excluded.tahmin,"
+        " yagmurlu = excluded.yagmurlu,"
+        " yagis_ihtimal = COALESCE(excluded.yagis_ihtimal, hava.yagis_ihtimal),"
+        " tahmin = excluded.tahmin,"
         " kaynak = excluded.kaynak, guncelleme = excluded.guncelleme",
         (tarih, degerler.get("en_yuksek"), degerler.get("en_dusuk"), yagis,
          degerler.get("ruzgar"), degerler.get("nem"), hadise, yagmurlu,
-         1 if tahmin else 0, kaynak, _simdi()),
+         degerler.get("yagis_ihtimal"), 1 if tahmin else 0, kaynak, _simdi()),
     )
 
 
@@ -228,7 +266,8 @@ def _openmeteo_tahmini(baglanti):
     adres = _acikhava_adresi(
         baglanti, "https://api.open-meteo.com/v1/forecast",
         "daily=temperature_2m_max,temperature_2m_min,precipitation_sum,"
-        "windspeed_10m_max,relative_humidity_2m_max&forecast_days=7",
+        "precipitation_probability_max,windspeed_10m_max,"
+        "relative_humidity_2m_max&forecast_days=7",
     )
     ham = _getir(adres) if adres else None
     if not ham or "daily" not in ham:
@@ -240,10 +279,39 @@ def _openmeteo_tahmini(baglanti):
             en_yuksek=gunluk["temperature_2m_max"][sira],
             en_dusuk=gunluk["temperature_2m_min"][sira],
             yagis=gunluk["precipitation_sum"][sira],
+            yagis_ihtimal=gunluk.get("precipitation_probability_max",
+                                     [None] * 99)[sira],
             ruzgar=gunluk["windspeed_10m_max"][sira],
             nem=gunluk.get("relative_humidity_2m_max", [None] * 99)[sira],
         )
     return len(gunluk["time"])
+
+
+def _yagis_ihtimalleri(baglanti):
+    """Yagis ihtimali yuzdesini Open-Meteo'dan alip mevcut gunlere isler.
+
+    MGM tahminde yuzde vermiyor, sadece 'sagnak yagisli' gibi bir hadise kodu
+    veriyor. Yuzdeyi uydurmak yerine bu kucuk istekle gercegi aliyoruz; istek
+    basarisiz olursa yuzde gorunmez, gerisi aynen calisir.
+    """
+    adres = _acikhava_adresi(
+        baglanti, "https://api.open-meteo.com/v1/forecast",
+        "daily=precipitation_probability_max&forecast_days=7",
+    )
+    ham = _getir(adres) if adres else None
+    if not ham or "daily" not in ham:
+        return 0
+    gunluk = ham["daily"]
+    adet = 0
+    for sira, tarih in enumerate(gunluk["time"]):
+        oran = gunluk.get("precipitation_probability_max", [None] * 99)[sira]
+        if oran is None:
+            continue
+        # Sadece kaydi olan gunler guncellenir; yuzde tek basina bir gun kurmaz.
+        adet += baglanti.execute(
+            "UPDATE hava SET yagis_ihtimal = ? WHERE tarih = ?", (oran, tarih)
+        ).rowcount
+    return adet
 
 
 def _gecmisi_tamamla(baglanti):
@@ -314,6 +382,8 @@ def guncelle(baglanti):
     if tercih in ("mgm", "mgm+arsiv"):
         ileri = _mgm_tahmini(baglanti)
         kaynak = "MGM" if ileri else ""
+        if ileri:
+            _yagis_ihtimalleri(baglanti)
     if not ileri and tercih != "mgm":
         ileri = _openmeteo_tahmini(baglanti)
         kaynak = "Open-Meteo" if ileri else ""
@@ -338,4 +408,7 @@ def ozet(baglanti, tarih):
         metin += f", {hadise_metni(satir['hadise'])}"
     elif satir["yagmurlu"]:
         metin += ", yağışlı"
-    return metin
+    oran = ihtimal(satir)
+    if oran is not None:
+        metin += f" · %{oran} yağış ihtimali"
+    return f"{simge(satir)} {metin}".strip()

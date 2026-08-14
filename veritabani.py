@@ -210,6 +210,7 @@ CREATE TABLE IF NOT EXISTS hava (
     nem         REAL,          -- %
     hadise      TEXT NOT NULL DEFAULT '',   -- 'A', 'PB', 'GSY' gibi MGM kodu
     yagmurlu    INTEGER NOT NULL DEFAULT 0,
+    yagis_ihtimal REAL,        -- %; MGM vermez, Open-Meteo'dan gelir
     tahmin      INTEGER NOT NULL DEFAULT 1, -- 1: henuz gerceklesmedi
     kaynak      TEXT NOT NULL DEFAULT '',
     guncelleme  TEXT NOT NULL DEFAULT ''
@@ -310,6 +311,7 @@ def ayar_yaz(baglanti, anahtar, deger):
 # CREATE TABLE IF NOT EXISTS eski tabloya kolon eklemez.
 SONRADAN_EKLENENLER = {
     "kalemler": {"tur": "TEXT NOT NULL DEFAULT ''"},
+    "hava": {"yagis_ihtimal": "REAL"},
 }
 
 

@@ -127,22 +127,66 @@ STIL = """
 * { box-sizing: border-box; }
 body { margin:0; font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
        background:#f4f6f8; color:#1c2733; font-size:16px; }
-header { background:#0f4c75; color:#fff; padding:14px 16px; }
+/* Ust seritler ekranin tamamini kaplar ama icleri govdeyle ayni hizada durur. */
+header { background:#0f4c75; color:#fff; padding:14px max(16px, calc((100% - 1400px) / 2)); }
 header h1 { margin:0; font-size:19px; font-weight:600; }
-nav { display:flex; gap:4px; overflow-x:auto; background:#123f5e; padding:0 8px; }
+nav { display:flex; gap:4px; overflow-x:auto; background:#123f5e;
+      padding:0 max(8px, calc((100% - 1400px) / 2)); }
 nav a { color:#cfe3f2; text-decoration:none; padding:12px 14px; white-space:nowrap; font-size:15px; }
 nav a.aktif { color:#fff; border-bottom:3px solid #ffb703; font-weight:600; }
+/* Simgeler yaziyi okumadan tanimayi kolaylastirir; dar ekranda da kaybolmaz. */
+.simge { margin-right:6px; font-size:15px; font-style:normal; }
 nav button { background:none; color:#cfe3f2; padding:12px 14px; font-size:15px;
              font-weight:400; margin-left:auto; white-space:nowrap; }
-main { padding:16px; max-width:900px; margin:0 auto; }
+main { padding:16px; max-width:1400px; margin:0 auto; }
+
+/* Kartlar genis ekranda iki sutuna dizilir, dar ekranda alt alta iner.
+   Tablolar okunakli kalsin diye ikiden fazla sutun yapilmiyor. */
+/* minmax(0,1fr): genis bir tablo kartin icinde kaysin, sayfayi yana kaydirmasin. */
+.icerik { display:grid; gap:16px; align-items:start; grid-template-columns:minmax(0, 1fr); }
+@media (min-width:1100px) { .icerik { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
+/* Ana menude sol sutun yer kapladigi icin ikili dizilim daha genis ekranda baslar. */
+@media (max-width:1439px) { .ana-duzen > .icerik { grid-template-columns:minmax(0, 1fr); } }
+.icerik > .kart, .icerik > .kutular { margin-bottom:0; }
+.icerik > .kutular, .icerik > .sekmeler { grid-column:1 / -1; }
+/* Sayfa ici sekmeler: satis sayfasinin iki yontemi arasinda gecis. */
+.sekmeler { display:flex; gap:6px; background:#fff; border-radius:10px; padding:6px;
+            box-shadow:0 1px 3px rgba(0,0,0,.08); max-width:520px; }
+.sekmeler a { flex:1; text-align:center; padding:11px 14px; border-radius:7px;
+              text-decoration:none; color:#33475b; font-weight:600; font-size:15px; }
+.sekmeler a.aktif { background:#0f4c75; color:#fff; }
+/* Sayfada tek kart varsa yarim ekranda durmasin, genisligi kaplasin. */
+.icerik > .kart:only-child,
+.icerik > .sekmeler + .kart:last-child { grid-column:1 / -1; }
+/* Uzun giris listeleri genis ekranda yan yana kolonlara boluner. */
+.giris-liste { display:grid; gap:0 22px;
+               grid-template-columns:repeat(auto-fill, minmax(min(100%, 300px), 1fr)); }
+
+/* Ana menu: solda tahmin sutunu, sagda gunun kartlari. */
+.ana-duzen { display:grid; gap:16px; align-items:start; grid-template-columns:minmax(0, 1fr); }
+.yan { display:grid; gap:16px; align-items:start; grid-template-columns:minmax(0, 1fr); }
+.yan .kart { margin-bottom:0; padding:14px; }
+.yan .kart h2 { font-size:15px; }
+.yan-satir { display:flex; justify-content:space-between; align-items:baseline;
+             gap:10px; padding:7px 0; border-bottom:1px solid #f0f3f6; font-size:14px; }
+.yan-satir:last-child { border-bottom:0; }
+.yan-satir .sag { text-align:right; white-space:nowrap; }
+@media (min-width:1000px) {
+  .ana-duzen { grid-template-columns:320px minmax(0, 1fr); }
+  .ana-duzen > .yan { grid-column:1; grid-row:1; }
+  .ana-duzen > .icerik { grid-column:2; grid-row:1; }
+}
 .kart { background:#fff; border-radius:10px; padding:16px; margin-bottom:16px;
         box-shadow:0 1px 3px rgba(0,0,0,.08); }
 .kart h2 { margin:0 0 12px; font-size:17px; }
 .kart h3 { margin:18px 0 8px; font-size:15px; color:#0f4c75; }
-.kutular { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:16px; }
+/* auto-fill: kutu sayisi az oldugunda kutular kocaman gerilmez, boyu sabit kalir. */
+.kutular { display:grid; gap:12px; margin-bottom:16px;
+           grid-template-columns:repeat(auto-fill,minmax(min(100%, 210px),1fr)); }
 .kutu { background:#fff; border-radius:10px; padding:14px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
 .kutu .etiket { font-size:13px; color:#6b7c8f; margin-bottom:6px; }
 .kutu .deger { font-size:22px; font-weight:700; }
+.hava-simge { margin-right:6px; }
 .yesil { color:#1b7f4f; } .kirmizi { color:#c1392b; } .mavi { color:#0f4c75; } .gri { color:#6b7c8f; }
 table { width:100%; border-collapse:collapse; font-size:15px; }
 th, td { text-align:left; padding:9px 6px; border-bottom:1px solid #e6ebf0; }
@@ -162,6 +206,7 @@ button.mini { background:none; color:#33475b; padding:4px 8px; font-weight:400; 
               text-decoration:underline; }
 .mesaj { background:#dff3e6; border-left:4px solid #1b7f4f; padding:12px 14px; border-radius:7px;
          margin-bottom:16px; }
+.mesaj.hata { background:#fde8e6; border-left-color:#c1392b; }
 .uyari { padding:12px 14px; border-radius:7px; margin-bottom:10px; border-left:4px solid; }
 .uyari.bitti { background:#fde8e6; border-color:#c1392b; }
 .uyari.acil  { background:#fff1de; border-color:#e07b00; }
@@ -184,45 +229,127 @@ button.mini { background:none; color:#33475b; padding:4px 8px; font-weight:400; 
 """
 
 
+# Ust menu gunun akisini izler: bak - sat - uret - stoga bak - parayi gir -
+# raporla - ayarla. Ucuncu sutun, menude gorunmeyen ama o baslige ait olan
+# sayfalar; o sayfalardayken de baslik isaretli kalir.
+MENU = [
+    ("/", "Ana Menü", "🏠", ()),
+    ("/satis", "Satış", "🍦", ("/satis-giris",)),
+    ("/uretim", "Üretim", "🥛", ()),
+    ("/stok", "Stok", "📦", ()),
+    ("/para", "Alım / Gider", "💰", ()),
+    ("/ozet", "Raporlar", "📊", ("/tahmin", "/ozel-gunler")),
+    ("/ayarlar", "Ayarlar", "⚙️", ("/kalemler", "/kalem")),
+]
+
+
 def menu_ogeleri(baglanti):
-    mod = ayar(baglanti, "satis_girisi", "ikisi")
-    ogeler = [("/", "Bugün")]
-    if mod in ("sayim", "ikisi"):
-        ogeler.append(("/satis", "Gün Sonu"))
-    if mod in ("dogrudan", "ikisi"):
-        ogeler.append(("/satis-giris", "Satış"))
-    ogeler += [
-        ("/uretim", "Üretim"),
-        ("/stok", "Stok"),
-        ("/para", "Alım / Gider"),
-    ]
-    if ayar(baglanti, "tahmin_acik", "1") == "1":
-        ogeler += [("/tahmin", "Tahmin"), ("/ozel-gunler", "Özel Günler")]
-    ogeler += [
-        ("/ozet", "Raporlar"),
-        ("/kalemler", "Ürün & Malzeme"),
-        ("/ayarlar", "Ayarlar"),
-    ]
-    return ogeler
+    return MENU
 
 
 def sayfa(baglanti, yol, baslik, icerik, mesaj=""):
     menu = "".join(
-        f'<a href="{adres}" class="{"aktif" if adres == yol else ""}">{ad}</a>'
-        for adres, ad in menu_ogeleri(baglanti)
+        f'<a href="{adres}" class="'
+        f'{"aktif" if yol == adres or yol in alt else ""}">'
+        f'<span class="simge">{simge}</span>{ad}</a>'
+        for adres, ad, simge, alt in menu_ogeleri(baglanti)
     )
     # Cikis ancak girilecek bir sifre varsa anlamli.
     if guvenlik.sifre_var_mi(baglanti):
         menu += ('<form method="post" action="/cikis" style="display:contents">'
-                 '<button>Çıkış</button></form>')
-    mesaj_html = f'<div class="mesaj">{kacir(mesaj)}</div>' if mesaj else ""
+                 '<button><span class="simge">🚪</span>Çıkış</button></form>')
+    # Basinda '!' olan mesaj bir uyaridir; yesil degil kirmizi kutuda gosterilir.
+    mesaj_html = ""
+    if mesaj:
+        hata = mesaj.startswith("!")
+        mesaj_html = (f'<div class="mesaj{" hata" if hata else ""}">'
+                      f'{kacir(mesaj[1:] if hata else mesaj)}</div>')
     dukkan = kacir(ayar(baglanti, "dukkan_adi", "Dükkanım"))
+
+    # Ana menude tahmin sutunu solda durur. Icerik HTML'de once yazilir ki
+    # telefonda once gunun kartlari, altinda tahmin gorunsun.
+    govde = f'<div class="icerik">{icerik}</div>'
+    yan = yan_panel(baglanti) if yol == "/" else ""
+    if yan:
+        govde = f'<div class="ana-duzen">{govde}<aside class="yan">{yan}</aside></div>'
+
     return f"""<!DOCTYPE html>
 <html lang="tr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{kacir(baslik)} - {dukkan}</title><style>{STIL}</style></head>
 <body><header><h1>{dukkan}</h1></header><nav>{menu}</nav>
-<main>{mesaj_html}{icerik}</main></body></html>"""
+<main>{mesaj_html}{govde}</main></body></html>"""
+
+
+def _yan_hava_satirlari(baglanti, gun_sayisi=7):
+    """Sol sutun icin dar, tek satirlik hava listesi."""
+    bugun = datetime.date.today()
+    satirlar = ""
+    for kaydirma in range(gun_sayisi):
+        tarih = (bugun + datetime.timedelta(days=kaydirma)).strftime("%Y-%m-%d")
+        gun = hava.gun(baglanti, tarih)
+        if gun is None or gun["en_yuksek"] is None:
+            continue
+        gun_adi = ("Bugün" if kaydirma == 0 else
+                   "Yarın" if kaydirma == 1 else
+                   tahmin_modulu.GUN_ADLARI[(bugun + datetime.timedelta(days=kaydirma)).weekday()])
+        alt = kacir(hava.hadise_metni(gun["hadise"])
+                    or ("yağışlı" if gun["yagmurlu"] else ""))
+        oran = hava.ihtimal(gun)
+        if oran is not None:
+            alt += f'{" · " if alt else ""}☔ %{oran}'
+        satirlar += (f'<div class="yan-satir"><div><b>{kacir(gun_adi)}</b>'
+                     f'<div class="bos" style="font-size:12px">{alt}</div></div>'
+                     f'<div class="sag"><b>{hava.simge(gun)} '
+                     f'{gun["en_yuksek"]:.0f}°</b></div></div>')
+    return satirlar
+
+
+def yan_panel(baglanti):
+    """Ana menunun solundaki tahmin sutunu: hava, yedi gunluk ciro tahmini
+    ve kisa uretim onerisi. Tahmin kapaliysa sutun hic cizilmez."""
+    if ayar(baglanti, "tahmin_acik", "1") != "1":
+        return ""
+
+    if not hava.sehir_secili_mi(baglanti):
+        return ('<div class="kart"><h2>Tahmin</h2>'
+                '<p class="bos">Hava ve satış tahmini için '
+                '<a href="/ayarlar">Ayarlar</a> sayfasından ilini seç.</p></div>')
+
+    sehir = kacir(ayar(baglanti, "sehir", ""))
+    model, gunler, uretimler = tahmin_modulu.ileri_tahmin(baglanti, 7)
+
+    if gunler:
+        govde = "".join(
+            f'<div class="yan-satir"><div><b>{kacir(gun["gun_adi"])}</b>'
+            f'<div class="bos" style="font-size:12px">{kacir(gun["hava"])}</div></div>'
+            f'<div class="sag"><b>{para(gun["ciro"])}</b>'
+            f'<div class="bos" style="font-size:12px">'
+            f'{tl(gun["alt"])} – {tl(gun["ust"])}</div></div></div>'
+            for gun in gunler
+        )
+    else:
+        # Tahmin henuz calismiyorsa en azindan hava gorunsun.
+        govde = _yan_hava_satirlari(baglanti)
+        govde += f'<p class="bos" style="margin-top:10px">{kacir(tahmin_modulu.durum_metni(model))}</p>'
+
+    panel = (f'<div class="kart"><h2>{sehir} — tahmin</h2>{govde}'
+             f'<p class="bos" style="margin-top:10px">'
+             f'<a href="/tahmin">Tahmin sayfasını aç</a></p></div>')
+
+    acik_olanlar = [oneri for oneri in uretimler if oneri["acik"] > 0][:5]
+    if acik_olanlar:
+        satirlar = "".join(
+            f'<div class="yan-satir"><div>{kacir(oneri["kalem"]["ad"])}</div>'
+            f'<div class="sag"><b>{mik(oneri["parti"], 1)} '
+            f'{kacir(oneri["parti_ad"])}</b></div></div>'
+            for oneri in acik_olanlar
+        )
+        panel += (f'<div class="kart"><h2>Ne üretmeli</h2>{satirlar}'
+                  f'<p class="bos" style="margin-top:10px">Tahmine göre eldeki '
+                  f'stok bu kadar yetmiyor.</p></div>')
+
+    return panel
 
 
 def giris_sayfasi(baglanti, hata=""):
@@ -334,8 +461,6 @@ def sayfa_bugun(baglanti, sorgu):
         kutular += kutu(f'Hazır {kalem["ad"]}',
                         f'{mik(kalem["stok"], 1)} {kacir(kalem["birim"])}', "mavi", alt)
 
-    hava_karti = _bugun_hava_karti(baglanti, tarih)
-
     liste = hesap.oneriler(baglanti)
     if liste:
         uyarilar = ""
@@ -382,36 +507,45 @@ def sayfa_bugun(baglanti, sorgu):
         satis_karti = ('<div class="kart"><h2>Bugün girilen satışlar</h2>'
                        '<p class="bos">Henüz giriş yapılmadı.</p></div>')
 
-    return f'<div class="kutular">{kutular}</div>{hava_karti}{oneri_karti}{satis_karti}'
+    return f'<div class="kutular">{kutular}</div>{oneri_karti}{satis_karti}'
 
 
-def _bugun_hava_karti(baglanti, tarih):
-    """Bugun sayfasindaki kucuk hava ve tahmin seridi."""
-    if not hava.sehir_secili_mi(baglanti) or ayar(baglanti, "tahmin_acik", "1") != "1":
-        return ""
-    bugun_hava = hava.ozet(baglanti, tarih)
-    yarin = (datetime.date.today() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-    yarin_hava = hava.ozet(baglanti, yarin)
-    if not bugun_hava and not yarin_hava:
-        return ""
+# ---------------------------------------------------------------- satis
 
-    model, gunler, _ = tahmin_modulu.ileri_tahmin(baglanti, 2)
-    tahmin_metni = ""
-    for gun in gunler:
-        etiket = "Bugün" if gun["tarih"] == tarih else "Yarın"
-        tahmin_metni += (f" · <b>{etiket} tahmini {para(gun['ciro'])}</b> "
-                         f"({tl(gun['alt'])} – {tl(gun['ust'])})")
-    if not gunler:
-        tahmin_metni = (" · satış tahmini için "
-                        f"{model['eksik_gun']} gün daha veri gerekiyor"
-                        if model["eksik_gun"] else "")
+def sayfa_satis_merkezi(baglanti, sorgu):
+    """Satisin iki yolu tek sayfada: rafta kalani say ya da tek tek gir.
+    Ayarlardaki tercih ikisinden birini sectiyse sekme hic gorunmez."""
+    mod = ayar(baglanti, "satis_girisi", "ikisi")
+    yontem = sorgu.get("yontem", [""])[0]
+    if mod in ("sayim", "dogrudan"):
+        yontem = mod
+    elif yontem not in ("sayim", "dogrudan"):
+        yontem = "sayim"
 
-    return (f'<div class="kart"><h2>{kacir(ayar(baglanti, "sehir", ""))} — hava</h2>'
-            f'<p class="bos">Bugün {kacir(bugun_hava) or "—"}'
-            f'{" · Yarın " + kacir(yarin_hava) if yarin_hava else ""}'
-            f'{tahmin_metni}</p>'
-            f'<p class="bos" style="margin-top:6px">'
-            f'<a href="/tahmin">Yedi günlük tahmine bak</a></p></div>')
+    sekmeler = ""
+    if mod == "ikisi":
+        tarih = sorgu.get("tarih", [""])[0]
+        ek = f"&tarih={urllib.parse.quote(tarih)}" if tarih else ""
+        sekmeler = '<div class="sekmeler">' + "".join(
+            f'<a href="/satis?yontem={anahtar}{ek}" '
+            f'class="{"aktif" if anahtar == yontem else ""}">{etiket}</a>'
+            for anahtar, etiket in (("sayim", "Rafta kalanı say"),
+                                    ("dogrudan", "Tek tek gir"))
+        ) + "</div>"
+
+    if yontem == "sayim":
+        return sekmeler + sayfa_satis(baglanti, sorgu)
+    return sekmeler + sayfa_satis_giris(baglanti, sorgu)
+
+
+def _dogrudan_adres(tarih):
+    """Dogrudan giris sekmesinin, tarihi koruyan adresi."""
+    return f"/satis?yontem=dogrudan&tarih={urllib.parse.quote(tarih)}"
+
+
+def sayfa_satis_dogrudan(baglanti, sorgu):
+    """Eski /satis-giris adresi; sekmeli sayfayi dogrudan giris kisminda acar."""
+    return sayfa_satis_merkezi(baglanti, dict(sorgu, yontem=["dogrudan"]))
 
 
 # ---------------------------------------------------------------- gun sonu sayimi
@@ -494,20 +628,24 @@ def sayfa_satis(baglanti, sorgu):
             f'placeholder="0"></div>'
         )
 
+    def liste(icerik):
+        """Giris satirlarini genis ekranda sutunlara bolen sarmalayici."""
+        return f'<div class="giris-liste">{icerik}</div>'
+
     bolumler = ""
     if satilan_html:
-        bolumler += f"<h3>Satılan ürünler — rafta kalanı yaz</h3>{satilan_html}"
+        bolumler += f"<h3>Satılan ürünler — rafta kalanı yaz</h3>{liste(satilan_html)}"
     if elle_html:
         bolumler += ('<h3>Miktarı elle girilenler</h3><p class="bos">Bunlar sayımdan '
-                     'bulunamaz, kaç sattığını sen yazarsın.</p>' + elle_html)
+                     'bulunamaz, kaç sattığını sen yazarsın.</p>' + liste(elle_html))
     if diger_html:
         bolumler += ('<h3>Diğer sayılanlar</h3><p class="bos">Bunlar satılmıyor ama '
                      'stokları gerçeğe eşitlensin diye sayılıyor; fark fire yazılır.</p>'
-                     + diger_html)
+                     + liste(diger_html))
     if sarf_html:
         bolumler += ('<h3>Verilen malzemeler</h3><p class="bos">Bunlar tek tek sayılmıyor. '
                      'O gün bir kolisi bittiyse işaretle; program bir koli düşer ve '
-                     'tutarını günün satışlarına paylaştırır.</p>' + sarf_html)
+                     'tutarını günün satışlarına paylaştırır.</p>' + liste(sarf_html))
     if not bolumler:
         bolumler = ('<p class="bos">Sayılacak kalem yok. <b>Ürün &amp; Malzeme</b> '
                     'sayfasından kalemlerin "gün sonu sayımı" ayarını doldur.</p>')
@@ -605,7 +743,9 @@ def sayfa_satis_giris(baglanti, sorgu):
             f'<input type="number" step="any" min="0" inputmode="decimal" '
             f'name="miktar_{kalem["id"]}" placeholder="0"></div>'
         )
-    if not satirlar:
+    if satirlar:
+        satirlar = f'<div class="giris-liste">{satirlar}</div>'
+    else:
         satirlar = ('<p class="bos">Satılacak ürün yok. <b>Ürün &amp; Malzeme</b> '
                     'sayfasından bir kaleme "satılır" işareti koy.</p>')
 
@@ -619,7 +759,7 @@ def sayfa_satis_giris(baglanti, sorgu):
         f"<td class='sag'>{mik(s['miktar'])} {kacir(s['birim'])}</td>"
         f"<td class='sag'>{para(s['tutar'])}</td>"
         f"<td class='sag'>{para(s['tutar'] - s['maliyet'])}</td>"
-        f"<td class='sag'>{_sil_dugmesi('satis', s['id'], '/satis-giris?tarih=' + tarih)}</td></tr>"
+        f"<td class='sag'>{_sil_dugmesi('satis', s['id'], _dogrudan_adres(tarih))}</td></tr>"
         for s in gunun
     ) or "<tr><td class='bos' colspan='5'>Bu tarihe satış girilmemiş.</td></tr>"
 
@@ -655,12 +795,20 @@ def sayfa_uretim(baglanti, sorgu):
         " JOIN kalemler k ON k.id = r.urun_id"
         " WHERE r.aktif = 1 AND k.aktif = 1 AND k.uretilir = 1 ORDER BY k.ad, r.sira, r.id"
     ).fetchall()
-    secenekler = [
-        (r["id"],
-         f"{r['urun_ad']}{' - ' + r['ad'] if r['ad'] else ''}"
-         f" (1 {r['parti_ad']} = {mik(r['verim'])} {r['birim']})")
-        for r in receteler
-    ]
+    # Her recete icin eldeki stokla kac parti cikacagi bir kere hesaplanir;
+    # hem secenek yazisinda hem asagidaki tabloda kullanilir.
+    kapasiteler = {r["id"]: hesap.uretim_kapasitesi(baglanti, r["id"]) for r in receteler}
+    secenekler = []
+    for r in receteler:
+        parti = kapasiteler[r["id"]]["parti"]
+        durum = ""
+        if parti is not None:
+            durum = (" — MALZEME YOK" if parti < 1
+                     else f" — en fazla {mik(parti, 1)} parti")
+        secenekler.append((
+            r["id"],
+            f"{r['urun_ad']}{' - ' + r['ad'] if r['ad'] else ''}"
+            f" (1 {r['parti_ad']} = {mik(r['verim'])} {r['birim']}){durum}"))
 
     if not secenekler:
         giris = ('<p class="bos">Üretilen ürün yok. <b>Ürün &amp; Malzeme</b> sayfasından '
@@ -703,8 +851,45 @@ def sayfa_uretim(baglanti, sorgu):
     return f"""
 <div class="kart"><h2>Üretim girişi</h2>
 <p class="bos">Kaç parti yaptığını yaz; reçetedeki malzemeler stoktan otomatik düşer,
-çıkan ürün stoğa girer.</p>{giris}</div>
+çıkan ürün stoğa girer. Malzeme yetmiyorsa program üretimi kaydetmez.</p>{giris}</div>
+{_kapasite_karti(baglanti, receteler, kapasiteler)}
 {kayit_karti}"""
+
+
+def _kapasite_karti(baglanti, receteler, kapasiteler):
+    """Eldeki malzemeyle neyin kac parti uretilebilecegi ve neyin bittigi."""
+    if not receteler:
+        return ""
+
+    satirlar, bitenler = "", 0
+    for recete in receteler:
+        kapasite = kapasiteler[recete["id"]]
+        parti = kapasite["parti"]
+        ad = f"{recete['urun_ad']}{' - ' + recete['ad'] if recete['ad'] else ''}"
+        if parti is None:
+            durum = "<span class='gri'>stok takibi yok, sınırsız</span>"
+            kisit = "—"
+        elif parti < 1:
+            bitenler += 1
+            durum = "<b class='kirmizi'>üretilemez</b>"
+            kisit = f"{kacir(kapasite['kisit'])} bitti"
+        else:
+            renk = "yesil" if parti >= 2 else "mavi"
+            durum = (f"<b class='{renk}'>{mik(parti, 1)} "
+                     f"{kacir(recete['parti_ad'])}</b>")
+            kisit = f"önce {kacir(kapasite['kisit'])} biter"
+        satirlar += (f"<tr><td>{kacir(ad)}</td><td class='sag'>{durum}</td>"
+                     f"<td>{kisit}</td></tr>")
+
+    uyari = ""
+    if bitenler:
+        uyari = (f'<div class="uyari bitti"><b>{bitenler} ürün şu an üretilemiyor</b>'
+                 f'<div class="detay">Malzemesi bitmiş. <a href="/para">Alım / Gider</a> '
+                 f'sayfasından eksik malzemeyi girince buradan üretebilirsin.</div></div>')
+
+    return (f'<div class="kart"><h2>Eldeki malzemeyle ne kadar üretebilirsin</h2>{uyari}'
+            f'<table><tr><th>Ürün</th><th class="sag">En fazla</th>'
+            f'<th>Sınırlayan malzeme</th></tr>{satirlar}</table></div>')
 
 
 # ---------------------------------------------------------------- stok
@@ -910,13 +1095,27 @@ def sayfa_ozet(baglanti, sorgu):
 
 <div class="kart"><h2>Son günler</h2><table>
 <tr><th>Tarih</th><th class='sag'>Ciro</th><th class='sag'>Brüt kâr</th></tr>
-{gun_satirlari}</table></div>"""
+{gun_satirlari}</table></div>
+{_tahmin_baglantisi(baglanti)}"""
+
+
+def _tahmin_baglantisi(baglanti):
+    """Raporlar gecmisi anlatir; ileriye bakmak isteyen tahmine gitsin."""
+    if ayar(baglanti, "tahmin_acik", "1") != "1":
+        return ""
+    return """
+<div class="kart"><h2>İleriye bakmak için</h2>
+<p class="bos">Buradaki rakamlar olan biteni anlatır. Önümüzdeki günlerde ne
+kadar satacağını ve ne üretmen gerektiğini tahmin sayfası söyler.</p>
+<p style="margin:12px 0 0"><a class="sablon" href="/tahmin">
+<b>Tahmin sayfasını aç</b>
+Yedi günlük hava, ciro tahmini ve üretim önerisi</a></p></div>"""
 
 
 # ---------------------------------------------------------------- tahmin
 
 def _hava_serisi(baglanti, gun_sayisi=7):
-    """Onumuzdeki gunlerin hava kartlari."""
+    """Onumuzdeki gunlerin hava kartlari: simge, sicaklik ve yagis ihtimali."""
     bugun = datetime.date.today()
     kartlar = ""
     for kaydirma in range(gun_sayisi):
@@ -927,9 +1126,25 @@ def _hava_serisi(baglanti, gun_sayisi=7):
         gun_adi = ("Bugün" if kaydirma == 0 else
                    "Yarın" if kaydirma == 1 else
                    tahmin_modulu.GUN_ADLARI[(bugun + datetime.timedelta(days=kaydirma)).weekday()])
-        alt = hava.hadise_metni(satir["hadise"]) or ("yağışlı" if satir["yagmurlu"] else "")
-        kartlar += kutu(gun_adi, f"{satir['en_yuksek']:.0f}°", "mavi", kacir(alt))
+        alt = kacir(hava.hadise_metni(satir["hadise"])
+                    or ("yağışlı" if satir["yagmurlu"] else ""))
+        oran = hava.ihtimal(satir)
+        if oran is not None:
+            yagmur = f'<b>☔ %{oran}</b> yağış ihtimali'
+            alt = f"{alt}<br>{yagmur}" if alt else yagmur
+        kartlar += kutu(gun_adi,
+                        f'<span class="hava-simge">{hava.simge(satir)}</span>'
+                        f'{satir["en_yuksek"]:.0f}°', "mavi", alt)
     return kartlar
+
+
+OZEL_GUN_KARTI = """
+<div class="kart"><h2>Özel günler</h2>
+<p class="bos">Bayram, festival, okul tatili gibi günleri takvime yazarsan
+tahmin o günleri ayrı öğrenir.</p>
+<p style="margin:12px 0 0"><a class="sablon" href="/ozel-gunler">
+<b>Özel gün takvimini aç</b>
+Bayram, festival, tatil — girilen günler ve öğrenilenler</a></p></div>"""
 
 
 def sayfa_tahmin(baglanti, sorgu):
@@ -938,7 +1153,7 @@ def sayfa_tahmin(baglanti, sorgu):
 <div class="kart"><h2>Önce şehri seç</h2>
 <p class="bos">Tahmin, resmi MGM hava verisine dayanıyor. Hangi ildesin?
 <a href="/ayarlar">Ayarlar</a> sayfasının en altındaki "Hava ve tahmin"
-bölümünden ilini seç, gerisi kendiliğinden gelir.</p></div>"""
+bölümünden ilini seç, gerisi kendiliğinden gelir.</p></div>""" + OZEL_GUN_KARTI
 
     model, gunler, uretimler = tahmin_modulu.ileri_tahmin(baglanti, 7)
     sehir = kacir(ayar(baglanti, "sehir", ""))
@@ -949,7 +1164,8 @@ bölümünden ilini seç, gerisi kendiliğinden gelir.</p></div>"""
 <div class="kutular">{_hava_serisi(baglanti) or
     '<p class="bos">Hava verisi henüz alınamadı. İnternet bağlantını kontrol edip '
     'aşağıdaki düğmeye bas.</p>'}</div>
-<p class="bos">Kaynak: resmi MGM tahmini · son güncelleme: {son}</p>
+<p class="bos">Kaynak: resmi MGM tahmini · yağış ihtimali: Open-Meteo ·
+son güncelleme: {son}</p>
 <form method="post" action="/hava-guncelle" style="margin-top:8px">
 <button class="ikincil">Havayı şimdi güncelle</button></form></div>"""
 
@@ -961,7 +1177,7 @@ bölümünden ilini seç, gerisi kendiliğinden gelir.</p></div>"""
 <p class="bos">Sistem şu anda arka planda çalışıyor: her günün havası
 kaydediliyor. Sen gün sonu satışlarını girdikçe program "sıcaklık şu kadar
 olduğunda ciro şu kadar oluyor" ilişkisini kendisi çıkaracak. Bunun için
-senin bir şey yapman gerekmiyor.</p></div>"""
+senin bir şey yapman gerekmiyor.</p></div>""" + OZEL_GUN_KARTI
 
     satirlar = ""
     for gun in gunler:
@@ -1021,7 +1237,8 @@ ihtiyacı, eldeki stokla karşılaştırıldı.</p><table>
 gerçekleşebileceği aralık. Program geçmişte ortalama {para(model['hata_payi'])}
 yanılmış; aralık buradan çıkıyor. Veri arttıkça aralık daralır.</p>
 {kirilim}</div>
-{uretim_karti}"""
+{uretim_karti}
+{OZEL_GUN_KARTI}"""
 
 
 # ---------------------------------------------------------------- ozel gunler
@@ -1363,10 +1580,17 @@ def sayfa_ayarlar(baglanti, sorgu):
     modlar = [
         ("sayim", "Gün sonu sayımı (rafta kalanı sayarım)"),
         ("dogrudan", "Doğrudan satış girişi (kaç sattığımı yazarım)"),
-        ("ikisi", "İkisi de menüde dursun"),
+        ("ikisi", "İkisi de dursun, sekmeyle geçeyim"),
     ]
 
     return f"""
+<div class="kart"><h2>Ürün ve malzemeler</h2>
+<p class="bos">Yeni ürün eklemek, reçete yazmak, bir kalemin birimini ya da
+kolisini değiştirmek için burası.</p>
+<p style="margin:12px 0 0"><a class="sablon" href="/kalemler">
+<b>Ürün &amp; Malzeme sayfasını aç</b>
+Kalem listesi, reçeteler ve satış şekilleri</a></p></div>
+
 <div class="kart"><h2>Genel ayarlar</h2>
 <form method="post" action="/ayarlar"><div class="satir">
 <div><label>Dükkan adı</label><input type="text" name="dukkan_adi"
@@ -1475,7 +1699,7 @@ yoksa program normal çalışmaya devam eder, sadece tahmin susar.</p>
 <form method="post" action="/ayarlar" style="margin-top:6px">
 <input type="hidden" name="tahmin_formu" value="1">
 <div class="roller">{kutucuk("tahmin_acik", ayar(baglanti, "tahmin_acik", "1") == "1",
-    "Tahmin sayfası menüde görünsün")}</div>
+    "Tahmin açık olsun (ana menünün solunda ve raporlarda görünür)")}</div>
 <button class="ikincil">Kaydet</button></form></div>"""
 
 
@@ -1563,7 +1787,7 @@ def islem_satis_giris(baglanti, veri):
         if kalem_id is not None and miktar > 0 and hesap.satis_ekle(
                 baglanti, tarih, kalem_id, miktar):
             girilen += 1
-    adres = f"/satis-giris?tarih={urllib.parse.quote(tarih)}"
+    adres = _dogrudan_adres(tarih)
     if not girilen:
         return adres, "Hiçbir miktar yazılmamış."
     ozet = hesap.gun_ozeti(baglanti, tarih)
@@ -1574,10 +1798,21 @@ def islem_uretim(baglanti, veri):
     tarih = veri.get("tarih", [hesap.bugun()])[0]
     recete_id = int(sayi(veri.get("recete_id", ["0"])[0]))
     adet = sayi(veri.get("adet", ["0"])[0])
+    adres = f"/uretim?tarih={urllib.parse.quote(tarih)}"
+
+    # Once stok kontrolu: malzeme yetmiyorsa hicbir sey kaydedilmez, neyin
+    # ne kadar eksik oldugu tek tek yazilir.
+    eksikler = hesap.recete_eksikleri(baglanti, recete_id, adet)
+    if eksikler:
+        detay = ", ".join(
+            f"{e['ad']} ({mik(e['eksik'])} {e['birim']} eksik, elde {mik(e['elde'])})"
+            for e in eksikler
+        )
+        return adres, f"!Üretim yapılmadı, malzeme yetmiyor: {detay}"
+
     if hesap.uretim_ekle(baglanti, tarih, recete_id, adet):
-        return (f"/uretim?tarih={urllib.parse.quote(tarih)}",
-                "Üretim kaydedildi, malzemeler stoktan düşüldü.")
-    return "/uretim", "Üretim kaydedilemedi; parti sayısını kontrol et."
+        return adres, "Üretim kaydedildi, malzemeler stoktan düşüldü."
+    return adres, "!Üretim kaydedilemedi; parti sayısını kontrol et."
 
 
 def islem_alim(baglanti, veri):
@@ -1840,9 +2075,9 @@ def islem_ayarlar(baglanti, veri):
 
 
 SAYFALAR = {
-    "/": ("Bugün", sayfa_bugun),
-    "/satis": ("Gün Sonu", sayfa_satis),
-    "/satis-giris": ("Satış", sayfa_satis_giris),
+    "/": ("Ana Menü", sayfa_bugun),
+    "/satis": ("Satış", sayfa_satis_merkezi),
+    "/satis-giris": ("Satış", sayfa_satis_dogrudan),
     "/uretim": ("Üretim", sayfa_uretim),
     "/stok": ("Stok", sayfa_stok),
     "/para": ("Alım / Gider", sayfa_para),

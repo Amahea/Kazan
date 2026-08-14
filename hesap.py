@@ -207,15 +207,70 @@ def _recete_dus(baglanti, tarih, recete_id, kat, sebep, kaynak_tur, kaynak_id):
                   sebep, kaynak_tur, kaynak_id)
 
 
+# ---------------------------------------------------------------- uretim kontrolu
+
+def _recete_malzemeleri(baglanti, recete_id):
+    """Recetenin stogu takip edilen malzemeleri. Takip edilmeyenler (sebeke
+    suyu gibi) zaten stoktan dusulmedigi icin listeye girmez."""
+    return [
+        satir for satir in baglanti.execute(
+            "SELECT r.kalem_id, r.miktar, k.ad, k.birim, k.takip"
+            " FROM recete_satirlari r JOIN kalemler k ON k.id = r.kalem_id"
+            " WHERE r.recete_id = ? ORDER BY k.ad", (recete_id,)
+        ).fetchall()
+        if satir["takip"] and satir["miktar"] > 0
+    ]
+
+
+def recete_eksikleri(baglanti, recete_id, adet):
+    """Bu receteden 'adet' parti icin stokta yetmeyen malzemelerin listesi.
+
+    Bos liste donmesi 'uretilebilir' demektir. Uretim, stogu eksiye dusurmesin
+    diye once buradan gecer.
+    """
+    stok = stoklar(baglanti)
+    eksikler = []
+    for satir in _recete_malzemeleri(baglanti, recete_id):
+        gereken = satir["miktar"] * adet
+        elde = stok.get(satir["kalem_id"], 0.0)
+        if elde + EPSILON < gereken:
+            eksikler.append({
+                "ad": satir["ad"], "birim": satir["birim"],
+                "gereken": gereken, "elde": elde, "eksik": gereken - elde,
+            })
+    return eksikler
+
+
+def uretim_kapasitesi(baglanti, recete_id):
+    """Eldeki stokla bu receteden en fazla kac parti cikar.
+
+    Doner: {"parti": sayi, "kisit": once biten malzemenin adi}. Recetenin
+    takip edilen malzemesi yoksa parti None'dir - sinir koyacak veri yok.
+    """
+    stok = stoklar(baglanti)
+    parti, kisit = None, ""
+    for satir in _recete_malzemeleri(baglanti, recete_id):
+        olabilir = stok.get(satir["kalem_id"], 0.0) / satir["miktar"]
+        if parti is None or olabilir < parti:
+            parti, kisit = olabilir, satir["ad"]
+    return {"parti": parti, "kisit": kisit}
+
+
 # ---------------------------------------------------------------- kayit ekleme
 
 def uretim_ekle(baglanti, tarih, recete_id, adet):
-    """Uretim: recetedeki malzemeler stoktan duser, urun stogu artar."""
+    """Uretim: recetedeki malzemeler stoktan duser, urun stogu artar.
+
+    Malzeme yetmiyorsa hicbir sey yazilmaz; cagiran taraf eksikleri
+    recete_eksikleri ile alip kullaniciya gosterir.
+    """
     recete = baglanti.execute(
         "SELECT r.*, k.ad AS urun_ad FROM receteler r JOIN kalemler k ON k.id = r.urun_id"
         " WHERE r.id = ?", (recete_id,)
     ).fetchone()
     if recete is None or adet <= 0:
+        return None
+    if recete_eksikleri(baglanti, recete_id, adet):
         return None
 
     maliyet = recete_maliyeti(baglanti, recete_id) * adet
