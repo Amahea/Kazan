@@ -191,3 +191,70 @@ katsayıdan iyidir. Aynı sebeple üç arife tek "Yarım Gün" etiketi altında.
 Yeni bir şey eklerken kural: **tekrar eden bir şeye her yıl aynı etiketi yaz.**
 "Fındık Toplama 2026" değil, sadece "Fındık Toplama" — yoksa her yıl sıfırdan
 öğrenmeye başlar.
+
+---
+
+## 4. GitHub ve programı internete açma
+
+*14 Ağustos 2026'da başlandı.*
+
+Proje artık GitHub'da: **github.com/Amahea/Kazan** (herkese açık).
+
+### Biten işler
+
+- [x] ~~Git kuruldu, proje GitHub'a yüklendi~~
+- [x] ~~`.gitignore`~~ — `*.db` ve `*.csv` hariç tutuldu. **Dükkânın verisi
+  GitHub'a gitmiyor:** ciro, kasa, borç, tedarikçiler, alış fiyatları hep
+  veritabanının içinde ve o dosya hiç gönderilmiyor. Programın çalışması için
+  gerek de yok, veritabanı ilk açılışta kendini kuruyor.
+- [x] ~~Giriş şifresi~~ — `guvenlik.py`. Şifre **isteğe bağlı:** kurmazsan
+  program bugünkü gibi doğrudan açılır, dükkân içi kullanım değişmez.
+  Ayarlar → Güvenlik'ten kurulur. Şifre değişince açık bütün oturumlar kapanır.
+- [x] ~~Sunucuda çalışabilme~~ — veritabanı yolu, port ve tarayıcı davranışı
+  sunucuya göre ayarlanabilir oldu. `render.yaml` ile kurulum tarifi yazıldı.
+
+### Sıradaki iş: Yedek al / Yedekten dön ekranı
+
+**Deploy etmeden önce bu bitmeli.** Sebebi şu: buluta geçince asıl defter orası
+oluyor ve iki sorunun cevabı yok —
+
+1. **Mevcut kayıtlar oraya nasıl çıkacak?** Bilgisayarındaki veritabanında
+   55 kalem, 31 reçete, bütün fiyatlar ve tatil takvimi var. Bulut boş başlar,
+   elle yeniden girmek günler alır.
+2. **Yedek nasıl alınacak?** Defter kirada bir sunucuda olacak. Servis batarsa,
+   hesap kapanırsa ya da yanlışlıkla bir şey silersen elinde kopya olmalı.
+   Bu, yerelde çalışırken olmayan **yeni** bir risk.
+
+- [ ] **Yedek ekranı yaz** — şifreyle korumalı, veritabanını dosya olarak indir
+  / dosyadan geri yükle. İkisini de aynı anda çözüyor.
+- [ ] **Yedek alma alışkanlığı** — buluta geçtikten sonra ayda bir indir, kendi
+  bilgisayarında sakla.
+
+### Sonra: Render'a kurulum
+
+- [ ] Render'a GitHub hesabıyla gir → **New → Blueprint** → `Kazan` deposunu seç
+- [ ] `render.yaml` her şeyi kendi kurar; sadece **şifreyi** panele gir
+      *(şifre depoya yazılmıyor, repo herkese açık)*
+- [ ] Yerelde "Yedek al" → Render'daki adreste "Yedekten dön"
+- [ ] Adres `kazan-xxxx.onrender.com` olur, HTTPS hazır gelir
+
+**Maliyet: aylık ~7 dolar.** Kalıcı disk ücretli plan istiyor. Bedava planda
+disk her yeniden başlatmada sıfırlanır, yani veri kalıcı olmaz — o plan bu iş
+için kullanılamaz.
+
+**Karar hatırlatması:** buluta geçince yereldeki kopyayı kullanmayı bırakman
+gerekiyor. İkisini birden kullanırsan iki ayrı defter tutmuş olursun. Ayrıca
+dükkânda internet kesilirse satış giremezsin — yerelde bu sorun yoktu.
+
+### Küçük işler
+
+- [ ] **`git push`** — gönderilmemiş kayıt var. Terminalde `cd c:\denizciler`
+      sonra `git push` demen yeterli, tarayıcı girişi bir daha sorulmaz.
+- [ ] **`README.md` yaz** — GitHub repo ana sayfasında `README.md` arıyor,
+      sende `OKU-BENI.md` var ve GitHub onu tanımıyor. Şu an jüri repoya
+      girince proje anlatımı değil, dosya listesi görüyor.
+- [ ] **Bu dosyadaki alış fiyatları** — süt 32, sahlep 900, aromalar 470–480
+      artık GitHub'da herkese açık. Rahatsız ederse ya rakamları temizle ya da
+      bu dosyayı da `.gitignore`'a ekle.
+- [ ] **İsimleri "Kazan"a çevir** — dosyaların içinde hâlâ "Dükkan Takip
+      Programı" yazıyor.
