@@ -33,8 +33,14 @@ import sqlite3
 import takvim
 
 KLASOR = os.path.dirname(os.path.abspath(__file__))
-DB_YOLU = os.path.join(KLASOR, "veri.db")
-ESKI_DB_YOLU = os.path.join(KLASOR, "dondurma.db")
+
+# Veritabani normalde kodun yanindaki klasorde durur - kendi bilgisayarinda
+# calisirken dogrusu budur. Ama bir sunucuda kod klasoru her yeni surumde
+# sifirdan kurulur; veritabani orada kalirsa her guncellemede butun kayitlar
+# silinir. KAZAN_VERI ile kalici diskteki klasor gosterilir.
+VERI_KLASORU = os.environ.get("KAZAN_VERI") or KLASOR
+DB_YOLU = os.path.join(VERI_KLASORU, "veri.db")
+ESKI_DB_YOLU = os.path.join(VERI_KLASORU, "dondurma.db")
 
 SEMA = """
 CREATE TABLE IF NOT EXISTS kalemler (
@@ -824,6 +830,7 @@ def _bos_ad(baglanti, ad):
 
 def hazirla():
     """Veritabanini acar; gerekiyorsa olusturur ya da eski surumden gocurur."""
+    os.makedirs(VERI_KLASORU, exist_ok=True)
     if not os.path.exists(DB_YOLU) and os.path.exists(ESKI_DB_YOLU):
         os.rename(ESKI_DB_YOLU, DB_YOLU)
 
@@ -831,7 +838,7 @@ def hazirla():
     if _eski_surum_mu(baglanti):
         baglanti.close()
         yedek = os.path.join(
-            KLASOR, f"yedek-{datetime.datetime.now():%Y%m%d-%H%M%S}.db"
+            VERI_KLASORU, f"yedek-{datetime.datetime.now():%Y%m%d-%H%M%S}.db"
         )
         shutil.copy2(DB_YOLU, yedek)
         baglanti = baglan()

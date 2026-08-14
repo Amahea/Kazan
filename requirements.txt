@@ -1,0 +1,3 @@
+# Bu program dışarıdan hiçbir paket kullanmıyor; her şey Python'un kendi
+# kütüphanelerinden. Dosya boş ama gerekli: sunucu, projeyi Python projesi
+# olarak bunu görünce tanıyor.

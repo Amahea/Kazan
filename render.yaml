@@ -1,0 +1,35 @@
+# Render.com kurulum tarifi.
+#
+# Render'da "New -> Blueprint" deyip bu depoyu secince asagidaki her sey
+# kendiliginden kurulur. Elle tek tek ayarlamaya gerek kalmaz.
+#
+# Iki nokta onemli:
+#
+# 1. disk -> Veritabaninin durdugu kalici disk. Bu OLMADAN her yeni surumde
+#    butun kayitlar silinir, cunku kod klasoru her seferinde sifirdan kurulur.
+#    Kalici disk ucretli plan gerektirir; bedava planda veri kalici olmaz.
+#
+# 2. KAZAN_SIFRE -> sync: false demek "bu degerin karsiligi depoda yazmaz,
+#    Render panelinden elle girilir" demek. Sifre asla depoya yazilmamali;
+#    depo herkese acik.
+
+services:
+  - type: web
+    name: kazan
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python uygulama.py
+    envVars:
+      # Veritabani kalici diskte dursun
+      - key: KAZAN_VERI
+        value: /var/data
+      # Giris sifresi - degeri Render panelinden girilecek
+      - key: KAZAN_SIFRE
+        sync: false
+      - key: PYTHON_VERSION
+        value: "3.12"
+    disk:
+      name: veri
+      mountPath: /var/data
+      sizeGB: 1

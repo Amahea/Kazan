@@ -12,6 +12,7 @@ acilista bir dukkan sablonu secilir ve oradan devam edilir.
 
 import datetime
 import html
+import os
 import socket
 import threading
 import time
@@ -28,7 +29,11 @@ import takvim
 import veritabani
 from veritabani import ayar, ayar_yaz, sayi
 
-PORT = 8000
+# Bulut servisleri dinlenecek portu PORT degiskeniyle bildirir. Bu degiskenin
+# varligi ayni zamanda "bir sunucuda calisiyoruz" demektir: orada tarayici
+# acmanin ya da yerel ag adresi yazdirmanin anlami yok.
+PORT = int(os.environ.get("PORT") or 8000)
+SUNUCUDA = "PORT" in os.environ
 PARA = "TL"   # her istekte ayarlardan tazelenir
 
 
@@ -2084,15 +2089,20 @@ def calistir():
     print("=" * 56)
     print(f"  {baslik.upper()} - TAKIP PROGRAMI")
     print("=" * 56)
-    print(f"  Bu bilgisayardan : http://localhost:{PORT}")
-    print(f"  Telefondan       : http://{yerel_ip()}:{PORT}")
-    print()
-    print("  Kapatmak icin bu pencerede Ctrl+C tuslarina bas.")
-    print("=" * 56)
-    try:
-        webbrowser.open(f"http://localhost:{PORT}")
-    except Exception:
-        pass
+    if SUNUCUDA:
+        print(f"  Sunucu kipinde, {PORT} portu dinleniyor.")
+        print(f"  Veritabani: {veritabani.DB_YOLU}")
+        print("=" * 56)
+    else:
+        print(f"  Bu bilgisayardan : http://localhost:{PORT}")
+        print(f"  Telefondan       : http://{yerel_ip()}:{PORT}")
+        print()
+        print("  Kapatmak icin bu pencerede Ctrl+C tuslarina bas.")
+        print("=" * 56)
+        try:
+            webbrowser.open(f"http://localhost:{PORT}")
+        except Exception:
+            pass
     try:
         sunucu.serve_forever()
     except KeyboardInterrupt:
