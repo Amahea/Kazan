@@ -250,8 +250,9 @@ dükkânda internet kesilirse satış giremezsin — yerelde bu sorun yoktu.
 
 ### Küçük işler
 
-- [ ] **`git push`** — gönderilmemiş kayıt var. Terminalde `cd c:\denizciler`
-      sonra `git push` demen yeterli, tarayıcı girişi bir daha sorulmaz.
+- [x] ~~**`git push`**~~ — 14 Ağustos 2026'da gönderildi; bekleyen dört kayıt
+      da GitHub'a çıktı. Bundan sonra `cd c:\denizciler` sonra `git push`
+      demen yeterli, tarayıcı girişi bir daha sorulmaz.
 - [ ] **`README.md` yaz** — GitHub repo ana sayfasında `README.md` arıyor,
       sende `OKU-BENI.md` var ve GitHub onu tanımıyor. Şu an jüri repoya
       girince proje anlatımı değil, dosya listesi görüyor.
