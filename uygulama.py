@@ -20,6 +20,7 @@ import urllib.parse
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import guvenlik
 import hava
 import hesap
 import tahmin as tahmin_modulu
@@ -126,6 +127,8 @@ header h1 { margin:0; font-size:19px; font-weight:600; }
 nav { display:flex; gap:4px; overflow-x:auto; background:#123f5e; padding:0 8px; }
 nav a { color:#cfe3f2; text-decoration:none; padding:12px 14px; white-space:nowrap; font-size:15px; }
 nav a.aktif { color:#fff; border-bottom:3px solid #ffb703; font-weight:600; }
+nav button { background:none; color:#cfe3f2; padding:12px 14px; font-size:15px;
+             font-weight:400; margin-left:auto; white-space:nowrap; }
 main { padding:16px; max-width:900px; margin:0 auto; }
 .kart { background:#fff; border-radius:10px; padding:16px; margin-bottom:16px;
         box-shadow:0 1px 3px rgba(0,0,0,.08); }
@@ -203,6 +206,10 @@ def sayfa(baglanti, yol, baslik, icerik, mesaj=""):
         f'<a href="{adres}" class="{"aktif" if adres == yol else ""}">{ad}</a>'
         for adres, ad in menu_ogeleri(baglanti)
     )
+    # Cikis ancak girilecek bir sifre varsa anlamli.
+    if guvenlik.sifre_var_mi(baglanti):
+        menu += ('<form method="post" action="/cikis" style="display:contents">'
+                 '<button>Çıkış</button></form>')
     mesaj_html = f'<div class="mesaj">{kacir(mesaj)}</div>' if mesaj else ""
     dukkan = kacir(ayar(baglanti, "dukkan_adi", "Dükkanım"))
     return f"""<!DOCTYPE html>
@@ -211,6 +218,23 @@ def sayfa(baglanti, yol, baslik, icerik, mesaj=""):
 <title>{kacir(baslik)} - {dukkan}</title><style>{STIL}</style></head>
 <body><header><h1>{dukkan}</h1></header><nav>{menu}</nav>
 <main>{mesaj_html}{icerik}</main></body></html>"""
+
+
+def giris_sayfasi(baglanti, hata=""):
+    """Sifre ekrani. Menusuz ve tek alanli: giris yapmadan hicbir sey gorunmez."""
+    dukkan = kacir(ayar(baglanti, "dukkan_adi", "Dükkanım"))
+    uyari = f'<div class="uyari bitti"><b>{kacir(hata)}</b></div>' if hata else ""
+    return f"""<!DOCTYPE html>
+<html lang="tr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Giriş - {dukkan}</title><style>{STIL}</style></head>
+<body><header><h1>{dukkan}</h1></header>
+<main><div class="kart" style="max-width:400px;margin:40px auto">
+<h2>Giriş</h2>{uyari}
+<form method="post" action="/giris">
+<label>Şifre</label>
+<input type="password" name="sifre" autofocus autocomplete="current-password">
+<button style="margin-top:14px">Gir</button></form></div></main></body></html>"""
 
 
 def kutu(etiket, deger, renk="mavi", alt=""):
@@ -1357,6 +1381,8 @@ def sayfa_ayarlar(baglanti, sorgu):
 
 {_hava_ayar_karti(baglanti)}
 
+{_guvenlik_karti(baglanti)}
+
 <div class="kart"><h2>Fiyatlar</h2>
 <p class="bos">Hepsini tek ekrandan güncellemek için. Alım girdiğinde alış fiyatı zaten
 kendiliğinden güncellenir. Bir kalemin diğer ayarları için
@@ -1365,6 +1391,45 @@ kendiliğinden güncellenir. Bir kalemin diğer ayarları için
 <tr><th>Kalem</th><th>Alış fiyatı</th><th>Satış fiyatı</th><th>Kritik seviye</th></tr>
 {fiyat_satirlari}</table>
 <div style="margin-top:14px"><button>Fiyatları kaydet</button></div></form></div>"""
+
+
+def _guvenlik_karti(baglanti):
+    """Ayarlar sayfasindaki giris sifresi bolumu."""
+    if guvenlik.ortamdan_mi():
+        return """
+<div class="kart"><h2>Güvenlik</h2>
+<div class="uyari yakin"><b>Şifre sunucudan geliyor</b>
+<div class="detay">Bu kopya internete açık bir sunucuda çalışıyor ve şifresi
+oraya kurulumda verilmiş. Buradan değiştirilemez; değiştirmek için sunucudaki
+ayarı güncellemek gerekir.</div></div></div>"""
+
+    if guvenlik.sifre_var_mi(baglanti):
+        return """
+<div class="kart"><h2>Güvenlik</h2>
+<div class="uyari yakin"><b>Giriş şifresi açık</b>
+<div class="detay">Programı açan herkesten önce şifre isteniyor. Şifreyi
+değiştirirsen açık kalmış bütün oturumlar kapanır — telefonunda açık
+duruyorsa oradan da yeniden giriş istenir.</div></div>
+<form method="post" action="/sifre-kur"><div class="satir">
+<div><label>Yeni şifre</label>
+<input type="password" name="sifre" autocomplete="new-password"></div>
+</div><button class="ikincil">Şifreyi değiştir</button></form>
+<form method="post" action="/sifre-kaldir" style="margin-top:10px">
+<button class="sil">Şifreyi kaldır</button></form>
+<p class="bos" style="margin-top:10px">Şifreyi kaldırırsan program yine
+doğrudan açılır. Sadece dükkânda, kendi wifi'inde kullanıyorsan sakıncası
+yok; internete açıksa kaldırma.</p></div>"""
+
+    return f"""
+<div class="kart"><h2>Güvenlik</h2>
+<p class="bos">Şu an şifre yok: programı açan herkes doğrudan giriyor.
+<b>Dükkân içinde, kendi wifi'inde çalışırken bunun sakıncası yok</b> — dışarıdan
+kimse o ağda değil. Ama programı internete açarsan adresi bilen herkes kasayı,
+ciroyu ve tedarikçileri görür ve değiştirebilir. O durumda şifre şart.</p>
+<form method="post" action="/sifre-kur"><div class="satir">
+<div><label>Şifre koy (en az {guvenlik.EN_KISA_SIFRE} karakter)</label>
+<input type="password" name="sifre" autocomplete="new-password"></div>
+</div><button>Şifreyi kur</button></form></div>"""
 
 
 def _hava_ayar_karti(baglanti):
@@ -1847,13 +1912,44 @@ class Sunucu(BaseHTTPRequestHandler):
             f"<p style='margin-top:16px'><a href='/'>Ana sayfaya dön</a></p>"
             f"</div></main></body></html>", 500)
 
-    def _yonlendir(self, adres, mesaj=""):
+    def _yonlendir(self, adres, mesaj="", cerez=None):
         if mesaj:
             ayrac = "&" if "?" in adres else "?"
             adres = f"{adres}{ayrac}m={urllib.parse.quote(mesaj)}"
         self.send_response(303)
         self.send_header("Location", adres)
+        if cerez:
+            self.send_header("Set-Cookie", cerez)
         self.end_headers()
+
+    def _https_mi(self):
+        """Sunucu bir vekilin arkasindaysa https'i ancak bu basliktan anlar."""
+        return self.headers.get("X-Forwarded-Proto", "").lower() == "https"
+
+    def _girisli_mi(self, baglanti):
+        return guvenlik.girisli_mi(baglanti, self.headers.get("Cookie"))
+
+    def _sifre_islemi(self, baglanti, yol, veri):
+        """Sifre kurma/kaldirma. Ikisi de acik oturumlarin hepsini kapatir."""
+        if guvenlik.ortamdan_mi():
+            self._yonlendir("/ayarlar", "Şifre sunucudan geliyor, buradan değişmez.")
+            return
+
+        if yol == "/sifre-kaldir":
+            guvenlik.sifre_kaldir(baglanti)
+            self._yonlendir("/ayarlar", "Şifre kaldırıldı.",
+                            guvenlik.cerez_sil(self._https_mi()))
+            return
+
+        sorun = guvenlik.sifre_kur(baglanti, veri.get("sifre", [""])[0])
+        if sorun:
+            self._yonlendir("/ayarlar", sorun)
+            return
+        # Sifre degisince butun oturumlar kapanir. Degistiren kisinin kendi
+        # tarayicisi yeniden giris yapmak zorunda kalmasin diye taze cerez.
+        self._yonlendir("/ayarlar", "Şifre kaydedildi.",
+                        guvenlik.cerez_yaz(guvenlik.cerez_uret(baglanti),
+                                           self._https_mi()))
 
     def do_GET(self):
         global PARA
@@ -1863,16 +1959,30 @@ class Sunucu(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
-        sayfa_bilgi = SAYFALAR.get(parca.path)
-        if not sayfa_bilgi:
-            self._gonder("<h1>Sayfa bulunamadı</h1><a href='/'>Ana sayfa</a>", 404)
-            return
-
-        sorgu = urllib.parse.parse_qs(parca.query)
-        baslik, uretici = sayfa_bilgi
         baglanti = veritabani.baglan()
         try:
             PARA = ayar(baglanti, "para_birimi", "TL")
+
+            # Sifre kuruluysa giris yapmadan hicbir sayfa acilmaz. Sifre yoksa
+            # girisli_mi zaten dogru doner; dukkan ici kullanim degismez.
+            girisli = self._girisli_mi(baglanti)
+            if parca.path == "/giris":
+                if girisli:
+                    self._yonlendir("/")
+                else:
+                    self._gonder(giris_sayfasi(baglanti))
+                return
+            if not girisli:
+                self._gonder(giris_sayfasi(baglanti), 401)
+                return
+
+            sayfa_bilgi = SAYFALAR.get(parca.path)
+            if not sayfa_bilgi:
+                self._gonder("<h1>Sayfa bulunamadı</h1><a href='/'>Ana sayfa</a>", 404)
+                return
+
+            sorgu = urllib.parse.parse_qs(parca.query)
+            baslik, uretici = sayfa_bilgi
             # Ilk acilista once dukkan sablonu secilir.
             if veritabani.kurulum_gerekli(baglanti) and parca.path != "/kurulum":
                 self._yonlendir("/kurulum")
@@ -1888,11 +1998,8 @@ class Sunucu(BaseHTTPRequestHandler):
     def do_POST(self):
         global PARA
         parca = urllib.parse.urlparse(self.path)
-        islem = ISLEMLER.get(parca.path)
-        if not islem:
-            self._gonder("<h1>Bulunamadı</h1>", 404)
-            return
-
+        # Govde her durumda okunur; okunmadan cevap verilirse tarayici bir
+        # sonraki istekte yarim kalmis veriyle karsilasir.
         uzunluk = int(self.headers.get("Content-Length", 0))
         veri = urllib.parse.parse_qs(
             self.rfile.read(uzunluk).decode("utf-8"), keep_blank_values=True
@@ -1900,6 +2007,35 @@ class Sunucu(BaseHTTPRequestHandler):
         baglanti = veritabani.baglan()
         try:
             PARA = ayar(baglanti, "para_birimi", "TL")
+
+            if parca.path == "/giris":
+                if guvenlik.sifre_dogru_mu(baglanti, veri.get("sifre", [""])[0]):
+                    self._yonlendir("/", "", guvenlik.cerez_yaz(
+                        guvenlik.cerez_uret(baglanti), self._https_mi()))
+                else:
+                    # Yanlis sifreyi bir saniye bekletmek, sirayla sifre deneyen
+                    # bir programi pratikte kullanissiz hale getirir.
+                    time.sleep(1)
+                    self._gonder(giris_sayfasi(baglanti, "Şifre yanlış."), 401)
+                return
+
+            if parca.path == "/cikis":
+                self._yonlendir("/giris", "", guvenlik.cerez_sil(self._https_mi()))
+                return
+
+            if not self._girisli_mi(baglanti):
+                self._gonder(giris_sayfasi(baglanti), 401)
+                return
+
+            # Sifre islemleri cerez de yazdigi icin ISLEMLER'den gecmez.
+            if parca.path in ("/sifre-kur", "/sifre-kaldir"):
+                self._sifre_islemi(baglanti, parca.path, veri)
+                return
+
+            islem = ISLEMLER.get(parca.path)
+            if not islem:
+                self._gonder("<h1>Bulunamadı</h1>", 404)
+                return
             adres, mesaj = islem(baglanti, veri)
         except Exception as hata:
             baglanti.rollback()
