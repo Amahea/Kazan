@@ -1,0 +1,20 @@
+# --- Dükkânın gerçek verisi. GitHub'a ASLA gitmemeli ---
+# Ciro, kasa, borç, alış fiyatları ve tedarikçiler hep veritabanının içinde.
+# Bir kere gönderilirse geçmişten temizlemek çok zor, o yüzden ilk günden hariç.
+# Programın çalışması için gerek de yok: veritabanı ilk açılışta kendi kuruluyor.
+*.db
+
+# Eski sürümden kalma kurulum dosyaları. Kod bunların hiçbirini okumuyor,
+# ama içlerinde tedarikçi adları ve alış fiyatları yazılı.
+*.csv
+
+# --- Kaynak kod olmayanlar ---
+# Python'un ürettiği geçici dosyalar
+__pycache__/
+*.pyc
+
+# Editör ve işletim sistemi çöpleri
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
