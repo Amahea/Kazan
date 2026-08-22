@@ -1,14 +1,25 @@
 # -*- coding: utf-8 -*-
-"""Denemelik bir sezon uretir. GERCEK VERI DEGILDIR.
+"""Denemelik bir sezon uretir. GUNLER UYDURMADIR, OLCULER DUKKANIN KENDISINDEN.
 
-Ekranlar bos dururken programin ne yaptigi gorunmuyordu; bu betik veritabanina
-15 Mayis - 21 Agustos 2026 arasi uydurma bir sezon yaziyor: alim, uretim, gun
-sonu sayimi, kilo satisi, gider, tedarikciye odeme.
+15 Mayis - 21 Agustos 2026 arasi bir sezon yazar: alim, uretim, gun sonu
+sayimi, gider, tedarikciye odeme.
 
-Uydurma olmayan tek sey hava: Ordu'nun o gunlerdeki gercek olcumleri
-Open-Meteo arsivinden cekiliyor, gunluk talep de ona bagli hesaplaniyor -
-sicakta cok, yagmurda az, hafta sonu yogun, bayramda daha yogun. Boylece
-tahmin ekrani ogrenecek tutarli bir gecmis buluyor.
+Dukkanin calisma sekli (2026 Agustos'ta sahibinden alindi):
+  - Satilan sey dondurmanin kendisi. Bir top 60 gram, 60 TL; yani 1.000 TL/kg.
+    Kilo ile de ayni fiyattan gidiyor.
+  - Kulah, kap ve helva kagidi AMBALAJ. Musteriden ayrica para alinmiyor,
+    bir kulaha 2 top da konabiliyor 3 top da. Bu yuzden ciro ambalaj adedinden
+    degil, giden kilodan hesaplaniyor.
+  - Gun sonunda rafta kalan ambalaj ve her kazanda kalan kilo yaziliyor;
+    ne satildigini program aradaki farktan buluyor.
+  - Yaz ortasinda sicak, normal bir hafta ici gunu 150 kg dondurma gidiyor.
+    Ambalaj birbirine su oranda: 2200 kulah, 500 kap, 50 kagit helva.
+  - Hafta sonu hafta icinin 1,5 kati. Yagmurlu gunde satis ucte bir duser.
+    Sezon basi ve sonu yaz ortasindan cok farkli degil.
+
+Uydurma olmayan bir sey daha var: hava. Ordu'nun o gunlerdeki gercek olcumleri
+Open-Meteo arsivinden cekiliyor, gunluk talep de ona bagli hesaplaniyor.
+Boylece tahmin ekrani ogrenecek tutarli bir gecmis buluyor.
 
 Butun kayitlar programin kendi fonksiyonlariyla (hesap.py) yazilir; kasa,
 borc, stok ve maliyet tutarliligi programin kendi kurallarina gore olusur.
@@ -34,7 +45,8 @@ import veritabani
 BASLANGIC = datetime.date(2026, 5, 15)
 BITIS = datetime.date(2026, 8, 21)
 ENLEM, BOYLAM = 40.9838, 37.8858
-KILO_FIYATI = 1000.0
+KILO_FIYATI = 1000.0     # 1 top = 60 gram = 60 TL, yani kilosu 1.000 TL
+TOP_GRAM = 60.0
 
 random.seed(20260822)
 
@@ -43,20 +55,43 @@ KULAH, CORNETTE, K_KAP, O_KAP, B_KAP, K_HELVA, B_HELVA = 9, 10, 11, 12, 13, 14, 
 KILO_KABI, PET_SU, KASIK, PECETE, MENDIL = 16, 17, 18, 19, 20
 SADE_URUN = 56
 
-# Satis karisimi: (kalem_id, servis payi, bir serviste kac gram dondurma)
-KARISIM = [
-    (KULAH,    0.40, 60),
-    (CORNETTE, 0.10, 120),
-    (K_KAP,    0.15, 120),
-    (O_KAP,    0.13, 200),
-    (B_KAP,    0.06, 250),
-    (K_HELVA,  0.06, 200),
-    (B_HELVA,  0.04, 250),
-]
+# Bir kulaha ortalama kac top konuyor. Dukkanda 2 toplu da satiliyor 3 toplu
+# da; ortalama buradan degistirilir, gunluk kulah adedi kendiliginden ayarlanir.
+KULAH_ORTALAMA_TOP = 2.0
 
-# Hangi cesit ne kadar gidiyor. Listede olmayan cesit 1,5 agirlikla girer.
+# Ambalajin icine giren gram. Kulahinki top sayisina bagli, kaplarin ve helva
+# kagidinin olcusu sabit (ve fiyatlari da bu grama esit: 200 gram = 200 TL).
+AMBALAJ_GRAM = {
+    KULAH:   TOP_GRAM * KULAH_ORTALAMA_TOP,
+    K_KAP:   120,
+    O_KAP:   200,
+    B_KAP:   250,
+    K_HELVA: 200,
+    B_HELVA: 250,
+}
+
+# Gunluk ambalajin birbirine orani: 2200 kulah, 500 kap, 50 helva.
+# Kap ve helvanin kendi icindeki boy dagilimi dukkanin eski satis karisimindan.
+KULAH_ORANI = 2200
+KAP_ORANI = {K_KAP: 500 * 0.44, O_KAP: 500 * 0.38, B_KAP: 500 * 0.18}
+HELVA_ORANI = {K_HELVA: 50 * 0.60, B_HELVA: 50 * 0.40}
+
+# Gunluk dondurmanin bu kadari kap/kulaha girmeden kiloyla eve gidiyor.
+KILO_PAYI = 0.08
+
+# Yaz ortasinda sicak, normal bir hafta ici gunu dukkandan cikan dondurma.
+# Butun gunluk hesap bunun uzerine kurulu.
+GUNLUK_KG = 150.0
+
+# Gunluk satilan dondurmanin bu kadari sade (dukkan sahibi soyledi). Sadenin
+# agirligi asagidaki listeden degil bu paydan hesaplaniyor; cesit eklenip
+# cikarilsa bile sade payi yerinde kalir.
+SADE_PAYI = 0.40
+
+# Geri kalan cesitler birbirine gore ne kadar gidiyor. Listede olmayan cesit
+# 1,5 agirlikla girer. Sade burada yok: payi SADE_PAYI'den geliyor.
 AGIRLIKLAR = {
-    "Sade Dondurma": 26, "Çikolatalı Dondurma": 9, "Çilekli Dondurma": 7,
+    "Çikolatalı Dondurma": 9, "Çilekli Dondurma": 7,
     "Limonlu Dondurma": 5, "Vişneli Dondurma": 4, "Kavunlu Dondurma": 4,
     "Karadutlu Dondurma": 4, "Fındıklı Dondurma": 4, "Oreolu Dondurma": 4,
     "Kakaolu Dondurma": 3, "Muzlu Dondurma": 3, "Şeftalili Dondurma": 3,
@@ -74,20 +109,22 @@ TEDARIKCILER = {
 AMBALAJCI = "Ambalaj Dünyası"
 AROMACI = "Aroma Ticaret"
 
-# kalem -> (esik, alinacak miktar, tedarikci, pesin olasiligi)
+# Ambalaj alimi sabit esiklerle degil gunluk ihtiyaca gore yurur: gunun
+# tuketimi bilindigi icin "kac gunluk kaldi" sorusunun cevabi hesaplanabiliyor.
+# kalem -> (kac gunluk kalinca siparis verilir, kac gunluk alinir, tedarikci,
+#           pesin olasiligi)
 AMBALAJ_KURALI = {
-    KULAH:     (900, 450 * 6, AMBALAJCI, 0.3),
-    CORNETTE:  (360, 180 * 4, AMBALAJCI, 0.3),
-    K_KAP:     (300, 250 * 4, AMBALAJCI, 0.3),
-    O_KAP:     (250, 200 * 4, AMBALAJCI, 0.3),
-    B_KAP:     (150, 150 * 3, AMBALAJCI, 0.3),
-    K_HELVA:   (120, 100 * 3, AMBALAJCI, 0.3),
-    B_HELVA:   (100, 100 * 2, AMBALAJCI, 0.3),
-    KILO_KABI: (60,  50 * 4,  AMBALAJCI, 0.3),
-    KASIK:     (1000, 1000 * 5, AMBALAJCI, 0.3),
-    PECETE:    (5,   20,      AMBALAJCI, 0.8),
-    MENDIL:    (500, 1000 * 3, AMBALAJCI, 0.3),
-    PET_SU:    (48,  24 * 15, "Su Bayii", 0.9),
+    KULAH:     (4, 12, AMBALAJCI, 0.3),
+    K_KAP:     (4, 12, AMBALAJCI, 0.3),
+    O_KAP:     (4, 12, AMBALAJCI, 0.3),
+    B_KAP:     (4, 12, AMBALAJCI, 0.3),
+    K_HELVA:   (5, 15, AMBALAJCI, 0.3),
+    B_HELVA:   (5, 15, AMBALAJCI, 0.3),
+    KILO_KABI: (5, 15, AMBALAJCI, 0.3),
+    KASIK:     (4, 12, AMBALAJCI, 0.3),
+    PECETE:    (4, 12, AMBALAJCI, 0.8),
+    MENDIL:    (5, 15, AMBALAJCI, 0.3),
+    PET_SU:    (3, 10, "Su Bayii", 0.9),
 }
 
 TABAN_FIYAT = {}     # kalem_id -> sezon basindaki alis fiyati
@@ -113,6 +150,13 @@ def cesitleri_kur(baglanti):
             "verim": recete["verim"], "aroma": aroma["kalem_id"] if aroma else None,
             "agirlik": AGIRLIKLAR.get(urun["ad"], 1.5),
         })
+    # Sadenin agirligi, geri kalanlarin toplamindan SADE_PAYI'yi tutturacak
+    # sekilde geriye dogru hesaplaniyor.
+    digerleri = sum(c["agirlik"] for c in liste if c["id"] != SADE_URUN)
+    for c in liste:
+        if c["id"] == SADE_URUN and digerleri > 0:
+            c["agirlik"] = digerleri * SADE_PAYI / (1 - SADE_PAYI)
+
     toplam = sum(c["agirlik"] for c in liste)
     for c in liste:
         c["pay"] = c["agirlik"] / toplam
@@ -164,9 +208,11 @@ def havayi_yaz(baglanti, gunluk):
 
 
 # ---------------------------------------------------------------- talep
-MEVSIM = [(0, 0.42), (12, 0.55), (17, 0.72), (30, 0.80), (47, 1.00),
-          (60, 1.12), (78, 1.22), (92, 1.10), (98, 1.02)]
-HAFTA = [0.88, 0.86, 0.90, 0.95, 1.12, 1.32, 1.26]   # Pzt..Paz
+# Dukkan sahibi "sezon basi ve sonu yaz ortasindan cok farkli degil" dedi;
+# bu yuzden mevsim egrisi neredeyse duz, sadece iki ucta hafif bir inis var.
+MEVSIM = [(0, 0.96), (15, 1.00), (90, 1.00), (98, 0.96)]
+# Hafta ici gunler esit, cumartesi-pazar 1,5 kati.
+HAFTA = [1.0, 1.0, 1.0, 1.0, 1.0, 1.5, 1.5]          # Pzt..Paz
 
 
 def mevsim_carpani(gun_no):
@@ -194,17 +240,44 @@ def ozel_carpan(baglanti, tarih):
 
 
 def gunun_talebi(baglanti, tarih, gun_no, sicaklik, yagis):
-    carpan = 200.0 * mevsim_carpani(gun_no) * HAFTA[tarih.weekday()]
-    carpan *= max(0.55, min(1.65, 1 + 0.062 * (sicaklik - 24.0)))
+    """O gun dukkandan cikacak toplam dondurma, kilo olarak.
+
+    Cikis noktasi dukkanin kendi olcusu: yaz ortasinda sicak, normal bir hafta
+    ici gunu 150 kg. Geri kalani bunun uzerine binen carpanlar.
+    """
+    kg = GUNLUK_KG * mevsim_carpani(gun_no) * HAFTA[tarih.weekday()]
+    # Sicaklik etkisi bilerek yumusak: sezon basi ile yaz ortasi arasinda buyuk
+    # fark olmadigi soylendi, sert bir sicaklik egrisi bunu bozardi.
+    kg *= max(0.88, min(1.12, 1 + 0.014 * (sicaklik - 27.0)))
+    # "Yagmurlu gunde ucte bir duser" - saganakta biraz daha fazla.
     if yagis >= 4:
-        carpan *= 0.58
+        kg *= 0.60
     elif yagis >= 1:
-        carpan *= 0.72
+        kg *= 0.67
     elif yagis >= 0.3:
-        carpan *= 0.90
-    carpan *= ozel_carpan(baglanti, tarih.isoformat())
-    carpan *= random.gauss(1.0, 0.09)
-    return max(20, int(round(carpan)))
+        kg *= 0.85
+    kg *= ozel_carpan(baglanti, tarih.isoformat())
+    kg *= random.gauss(1.0, 0.09)
+    return max(5.0, round(kg, 1))
+
+
+def ambalaj_adetleri(servis_kg):
+    """Kap/kulaha giren kilodan gunun ambalaj adetlerini cikarir.
+
+    Adetler birbirine sabit oranda (2200 kulah, 500 kap, 50 helva) ama toplami
+    o gun giden kiloya oturmali; olcek bu yuzden gramdan hesaplaniyor.
+    """
+    oranlar = {KULAH: float(KULAH_ORANI)}
+    oranlar.update(KAP_ORANI)
+    oranlar.update(HELVA_ORANI)
+    birim_gram = sum(pay * AMBALAJ_GRAM[k] for k, pay in oranlar.items())
+    olcek = servis_kg * 1000.0 / birim_gram if birim_gram else 0.0
+
+    adetler = {}
+    for kalem_id, pay in oranlar.items():
+        adet = pay * olcek * random.uniform(0.92, 1.08)
+        adetler[kalem_id] = max(1, int(round(adet)))
+    return adetler
 
 
 # ---------------------------------------------------------------- alim
@@ -217,7 +290,8 @@ def alim_yap(baglanti, tarih, kalem_id, miktar, tedarikci, pesin_olasiligi, gun_
     hesap.alim_ekle(baglanti, tarih, kalem_id, miktar, tutar, odeme, tedarikci)
 
 
-def alimlari_kontrol_et(baglanti, tarih, gun_no, cesitler, gunluk_kg):
+def alimlari_kontrol_et(baglanti, tarih, gun_no, cesitler, gunluk_kg,
+                        gunluk_ihtiyac):
     stok = hesap.stoklar(baglanti)
 
     gunluk_sut = gunluk_kg * 0.85           # kazanlarin ortalama sut orani
@@ -241,9 +315,14 @@ def alimlari_kontrol_et(baglanti, tarih, gun_no, cesitler, gunluk_kg):
             miktar = max(6.0, math.ceil(gunluk_aroma * 25 / 2) * 2)
             alim_yap(baglanti, tarih, cesit["aroma"], miktar, AROMACI, 0.15, gun_no)
 
-    for kalem_id, (esik, miktar, tedarikci, pesin) in AMBALAJ_KURALI.items():
-        if stok.get(kalem_id, 0) < esik:
-            alim_yap(baglanti, tarih, kalem_id, miktar, tedarikci, pesin, gun_no)
+    for kalem_id, (esik_gun, alim_gun, tedarikci, pesin) in AMBALAJ_KURALI.items():
+        gunluk = gunluk_ihtiyac.get(kalem_id, 0.0)
+        if gunluk <= 0 or stok.get(kalem_id, 0) >= gunluk * esik_gun:
+            continue
+        koli = hesap.kalem(baglanti, kalem_id)["koli_adet"] or 1
+        # Tedarikciden koli koli aliniyor; ihtiyac kac koli ediyorsa o kadar.
+        miktar = max(koli, math.ceil(gunluk * alim_gun / koli) * koli)
+        alim_yap(baglanti, tarih, kalem_id, miktar, tedarikci, pesin, gun_no)
 
 
 # ---------------------------------------------------------------- uretim
@@ -253,109 +332,72 @@ def uretim_yap(baglanti, tarih, cesitler, gunluk_kg):
     for cesit in cesitler:
         gunluk = max(0.25, gunluk_kg * cesit["pay"])
         eldeki = stok.get(cesit["id"], 0.0)
-        if eldeki >= gunluk * 2:
+        if eldeki >= gunluk * 1.5:
             continue
-        gereken = gunluk * 4.5 - eldeki
-        if cesit["id"] == SADE_URUN:
-            # 122 kg'lik kazan bu dukkana buyuk geliyor: ceyrek kazan cirpiliyor.
-            kazan = max(0.25, round(gereken / cesit["verim"] * 4) / 4)
-        else:
-            kazan = max(1, min(2, math.ceil(gereken / cesit["verim"])))
+        gereken = gunluk * 3.0 - eldeki
+        # Kazan tam doldurulmak zorunda degil; ceyrek kazan da cirpiliyor.
+        kazan = max(0.25, round(gereken / cesit["verim"] * 4) / 4)
         hesap.uretim_ekle(baglanti, tarih, cesit["recete"], kazan)
 
 
 # ---------------------------------------------------------------- gun sonu
-def servisleri_dagit(adet):
-    """Gunun servislerini kap/kulah cesitlerine paylastirir.
+def _koli_bol(baglanti, kalem_id, kalan):
+    """Rafta kalani, sayim ekranindaki gibi koli + tek adet olarak ayirir."""
+    koli_adet = hesap.kalem(baglanti, kalem_id)["koli_adet"] or 0
+    if koli_adet > 1:
+        koli = math.floor(kalan / koli_adet)
+        return koli, round(kalan - koli * koli_adet, 3)
+    return 0, round(kalan, 3)
 
-    Paylar her gun biraz oynar ama toplam sabit kalsin diye once agirliklar
-    normallenir; yuvarlamadan artan tek tek en cok satana eklenir.
+
+def gun_sonu(baglanti, tarih, cesitler, gunluk_kg, ambalaj, pet_su):
+    """Gun sonu sayimi: rafta kalan ambalaj ve her kazanda kalan kilo.
+
+    Ne satildigini program aradaki farktan buluyor. Dondurma satilan kalem
+    oldugu icin tuketimi dogrudan ciroya doner (1.000 TL/kg); kulah ve kaplar
+    ambalaj oldugu icin tuketimleri 'Sarf' yazilip maliyetleri gunun
+    satislarina dagitilir. Musteriden ambalaj icin ayrica para alinmiyor.
     """
-    agirliklar = {kalem_id: pay * random.uniform(0.85, 1.15)
-                  for kalem_id, pay, _gram in KARISIM}
-    toplam = sum(agirliklar.values())
-    dagilim = {kalem_id: int(adet * agirlik / toplam)
-               for kalem_id, agirlik in agirliklar.items()}
-    artan = adet - sum(dagilim.values())
-    sirali = sorted(agirliklar, key=lambda k: -agirliklar[k])
-    for sira in range(artan):
-        dagilim[sirali[sira % len(sirali)]] += 1
-    return dagilim
-
-
-def kilo_satisi(baglanti, tarih, cesitler, kilo_kg):
-    """Kilo ile satis: programin 'Tek tek gir' ekranindan girilmis gibi."""
     stok = hesap.stoklar(baglanti)
-    kalan = kilo_kg
-    satilan = 0.0
-    for cesit in sorted(cesitler, key=lambda c: -c["pay"] * random.uniform(0.5, 1.5)):
-        if kalan < 0.2:
-            break
-        istek = kilo_kg * cesit["pay"] * random.uniform(0.4, 2.0)
-        miktar = round(min(istek, max(0.0, stok.get(cesit["id"], 0.0) - 0.5), kalan), 2)
-        if miktar < 0.2:
-            continue
-        hesap.satis_ekle(baglanti, tarih, cesit["id"], miktar)
-        kalan -= miktar
-        satilan += miktar
-    return satilan
+    kalanlar, giden = {}, {}
 
-
-def gun_sonu(baglanti, tarih, servis_adedi, kilo_adedi):
-    stok = hesap.stoklar(baglanti)
-    dagilim = servisleri_dagit(servis_adedi)
-    dagilim[PET_SU] = int(round(servis_adedi * 0.11 * random.uniform(0.7, 1.3)))
-    dagilim[KILO_KABI] = kilo_adedi          # her kilo satisinda bir kap gider
-
-    kalanlar, gercek = {}, {}
-    for kalem_id, satilan in dagilim.items():
+    for kalem_id, adet in list(ambalaj.items()) + [(PET_SU, pet_su)]:
         eldeki = stok.get(kalem_id, 0.0)
-        satilan = int(min(satilan, max(0, math.floor(eldeki))))
-        gercek[kalem_id] = satilan
-        kalan = eldeki - satilan
-        koli_adet = hesap.kalem(baglanti, kalem_id)["koli_adet"] or 0
-        if koli_adet > 1:
-            koli = math.floor(kalan / koli_adet)
-            kalanlar[kalem_id] = (koli, round(kalan - koli * koli_adet, 3))
-        else:
-            kalanlar[kalem_id] = (0, round(kalan, 3))
+        harcanan = int(min(adet, max(0, math.floor(eldeki))))
+        giden[kalem_id] = harcanan
+        kalanlar[kalem_id] = _koli_bol(baglanti, kalem_id, eldeki - harcanan)
 
+    # Kazanlardan cikan kilo: cesitlerin gunluk payina gore, elde ne varsa.
+    kalan_hedef = gunluk_kg
+    for cesit in sorted(cesitler, key=lambda c: -c["pay"]):
+        eldeki = stok.get(cesit["id"], 0.0)
+        istek = gunluk_kg * cesit["pay"] * random.uniform(0.85, 1.15)
+        # Kazan hic dibine kadar bitmiyor; bir miktar hep kaliyor.
+        cikan = round(min(istek, max(0.0, eldeki - 0.15), max(0.0, kalan_hedef)), 3)
+        kalan_hedef -= cikan
+        giden[cesit["id"]] = cikan
+        kalanlar[cesit["id"]] = _koli_bol(baglanti, cesit["id"], eldeki - cikan)
+
+    # Kiloyla giden dondurmanin kabi. Ortalama bir buçuk kiloluk paketler.
+    kilo_kg = gunluk_kg * KILO_PAYI
+    kilo_kabi = int(round(kilo_kg / 1.5))
+    eldeki = stok.get(KILO_KABI, 0.0)
+    harcanan = int(min(kilo_kabi, max(0, math.floor(eldeki))))
+    giden[KILO_KABI] = harcanan
+    kalanlar[KILO_KABI] = _koli_bol(baglanti, KILO_KABI, eldeki - harcanan)
+
+    # Kasik, pecete, mendil tek tek sayilmiyor; kolisi bitince isaretleniyor.
     bitenler = []
-    if stok.get(KASIK, 0) > 1000 and random.random() < servis_adedi * 1.15 / 1000:
+    kap_adedi = sum(adet for k, adet in ambalaj.items() if k != KULAH)
+    if stok.get(KASIK, 0) > 1000 and random.random() < kap_adedi * 1.4 / 1000:
         bitenler.append(KASIK)
     if stok.get(PECETE, 0) > 1 and random.random() < 0.75:
         bitenler.append(PECETE)
-    if stok.get(MENDIL, 0) > 1000 and random.random() < servis_adedi * 0.55 / 1000:
+    if stok.get(MENDIL, 0) > 1000 and random.random() < kap_adedi * 0.9 / 1000:
         bitenler.append(MENDIL)
 
     hesap.sayim_kaydet(baglanti, tarih, kalanlar, None, bitenler)
-    return gercek
-
-
-def kepceyi_dus(baglanti, tarih, cesitler, gercek):
-    """Kap ve kulahlara cikan dondurmayi cesitlerin stogundan duser.
-
-    Program bugun kulahin icindeki dondurmayi, aromalara gecmeden onceki eski
-    'Dondurma' kaleminden dusuyor; aromali cesitlerin stogu kendiliginden
-    azalmiyor. Aksam kazanlarda kalani yazmis gibi burada elle dusuyoruz.
-    """
-    toplam_kg = sum(gercek.get(k, 0) * gram for k, _pay, gram in KARISIM) / 1000.0
-    if toplam_kg <= 0:
-        return
-    stok = hesap.stoklar(baglanti)
-    kalan = toplam_kg
-    for cesit in cesitler:
-        istek = toplam_kg * cesit["pay"] * random.uniform(0.85, 1.15)
-        miktar = round(min(istek, max(0.0, stok.get(cesit["id"], 0.0) - 0.2), kalan), 3)
-        if miktar < 0.05:
-            continue
-        kalan -= miktar
-        baglanti.execute(
-            "INSERT INTO stok_hareketleri (tarih, kalem_id, miktar, sebep, kaynak_tur)"
-            " VALUES (?, ?, ?, ?, 'elle_sayim')",
-            (tarih, cesit["id"], -miktar, "Kap ve külahlara çıkan"),
-        )
-    baglanti.commit()
+    return giden
 
 
 # ---------------------------------------------------------------- gider / odeme / banka
@@ -416,6 +458,55 @@ def bankaya_yatir(baglanti, tarih):
 
 
 # ---------------------------------------------------------------- ana akis
+# Sezon yazilmadan once bosaltilan tablolar. Kalemler, receteler, ozel gunler
+# ve ayarlar duruyor: onlar dukkanin kurulumu, gunluk hareket degil.
+TEMIZLENECEK = ("satislar", "sayim_satirlari", "sayimlar", "uretimler",
+                "alimlar", "giderler", "odemeler", "stok_hareketleri",
+                "kasa_hareketleri", "borc_hareketleri")
+
+
+def eskiyi_temizle(baglanti):
+    """Onceki sezonu siler; betik ikinci kez calisinca ustune yigilmasin."""
+    for tablo in TEMIZLENECEK:
+        baglanti.execute(f"DELETE FROM {tablo}")
+    baglanti.commit()
+
+
+def yapiyi_kur(baglanti):
+    """Kalemleri dukkanin gercek satis seklime gore ayarlar.
+
+    Satilan sey dondurma; kulah, kap ve helva kagidi ambalaj. Ambalaj
+    'dagit' isaretli oldugu icin gun sonunda harcanan miktarin tutari o gunun
+    satislarina paylastiriliyor - yani bir kulahin parasi musteriden ayrica
+    alinmasa da maliyeti kara yansiyor.
+
+    Ayrica kap ve kulahlarin eski receteleri siliniyor: icindeki dondurmayi
+    aromalara gecmeden onceki olu 'Dondurma' kaleminden dusuyorlardi. Artik
+    dondurma tuketimi kazanlarin gun sonu sayimindan olculuyor, receteyle
+    tahmin edilmiyor.
+    """
+    ambalajlar = list(AMBALAJ_GRAM) + [KILO_KABI]
+    for kalem_id in ambalajlar:
+        baglanti.execute(
+            "UPDATE kalemler SET satilir = 0, dagit = 1, sayim_tarzi = 'say'"
+            " WHERE id = ?", (kalem_id,))
+        for recete in baglanti.execute(
+                "SELECT id FROM receteler WHERE urun_id = ?", (kalem_id,)).fetchall():
+            baglanti.execute("DELETE FROM recete_satirlari WHERE recete_id = ?",
+                             (recete["id"],))
+            baglanti.execute("DELETE FROM receteler WHERE id = ?", (recete["id"],))
+
+    # Her kazan gun sonunda ayri sayiliyor; cesitler sayim ekranina cikmali.
+    baglanti.execute(
+        "UPDATE kalemler SET sayim_tarzi = 'say', fiyat = ?"
+        " WHERE uretilir = 1 AND satilir = 1 AND aktif = 1", (KILO_FIYATI,))
+
+    # Aromalara gecerken geride kalan eski 'Dondurma' kalemi artik hicbir
+    # receteye bagli degil; goze gorunmesin diye kapali kaliyor.
+    baglanti.execute("UPDATE kalemler SET aktif = 0, satilir = 0 WHERE ad = 'Dondurma'")
+    baglanti.commit()
+
+
 def hazirlik(baglanti, cesitler):
     for kalem_id in list(AMBALAJ_KURALI) + [SUT, SEKER, SAHLEP, VANILYA]:
         TABAN_FIYAT[kalem_id] = hesap.kalem(baglanti, kalem_id)["birim_fiyat"]
@@ -424,13 +515,9 @@ def hazirlik(baglanti, cesitler):
             TABAN_FIYAT[cesit["aroma"]] = hesap.kalem(baglanti, cesit["aroma"])["birim_fiyat"]
 
     baglanti.execute(
-        "UPDATE kalemler SET fiyat = ? WHERE uretilir = 1 AND satilir = 1 AND fiyat = 0",
-        (KILO_FIYATI,),
-    )
-    baglanti.execute(
         "INSERT INTO kasa_hareketleri (tarih, tutar, aciklama, kaynak_tur)"
         " VALUES (?, ?, ?, 'devir')",
-        (BASLANGIC.isoformat(), 40000.0, "Sezon açılış kasası"),
+        (BASLANGIC.isoformat(), 250000.0, "Sezon açılış kasası"),
     )
     baglanti.commit()
 
@@ -454,6 +541,8 @@ def main():
     print("yedek alindi:", yedek_al())
 
     baglanti = veritabani.baglan()
+    eskiyi_temizle(baglanti)
+    yapiyi_kur(baglanti)
     gunluk_hava = havayi_yaz(baglanti, havayi_getir())
     cesitler = cesitleri_kur(baglanti)
     hazirlik(baglanti, cesitler)
@@ -463,15 +552,22 @@ def main():
     while tarih <= BITIS:
         anahtar = tarih.isoformat()
         sicaklik, yagis = gunluk_hava.get(anahtar, (24.0, 0.0))
-        servis = gunun_talebi(baglanti, tarih, gun_no, sicaklik, yagis)
-        kilo_kg = round(servis * 0.042 * random.uniform(0.7, 1.35), 1)
-        gunluk_kg = sum(pay * gram for _k, pay, gram in KARISIM) * servis / 1000.0 + kilo_kg
+        gunluk_kg = gunun_talebi(baglanti, tarih, gun_no, sicaklik, yagis)
+        # Kilonun bir kismi kap/kulaha girmeden dogrudan eve gidiyor.
+        ambalaj = ambalaj_adetleri(gunluk_kg * (1 - KILO_PAYI))
+        pet_su = int(round(sum(ambalaj.values()) * 0.09 * random.uniform(0.7, 1.3)))
 
-        alimlari_kontrol_et(baglanti, anahtar, gun_no, cesitler, gunluk_kg)
+        # Ambalaj siparisi gunluk ihtiyaca gore veriliyor.
+        ihtiyac = dict(ambalaj)
+        ihtiyac[PET_SU] = pet_su
+        ihtiyac[KILO_KABI] = max(1, gunluk_kg * KILO_PAYI / 1.5)
+        ihtiyac[KASIK] = sum(a for k, a in ambalaj.items() if k != KULAH) * 1.4
+        ihtiyac[PECETE] = 0.75
+        ihtiyac[MENDIL] = sum(a for k, a in ambalaj.items() if k != KULAH) * 0.9
+
+        alimlari_kontrol_et(baglanti, anahtar, gun_no, cesitler, gunluk_kg, ihtiyac)
         uretim_yap(baglanti, anahtar, cesitler, gunluk_kg)
-        satilan_kg = kilo_satisi(baglanti, anahtar, cesitler, kilo_kg)
-        gercek = gun_sonu(baglanti, anahtar, servis, max(1, int(round(satilan_kg))))
-        kepceyi_dus(baglanti, anahtar, cesitler, gercek)
+        gun_sonu(baglanti, anahtar, cesitler, gunluk_kg, ambalaj, pet_su)
         giderleri_yaz(baglanti, tarih, gun_no)
         odemeleri_yap(baglanti, tarih)
         bankaya_yatir(baglanti, tarih)
@@ -481,8 +577,13 @@ def main():
 
     baglanti.commit()
     ciro = baglanti.execute("SELECT COALESCE(SUM(tutar),0) FROM satislar").fetchone()[0]
-    print("kasa:", round(hesap.kasa(baglanti)), "borç:", round(hesap.borc(baglanti)))
-    print("toplam ciro:", round(ciro))
+    kg = baglanti.execute(
+        "SELECT COALESCE(SUM(s.miktar),0) FROM satislar s JOIN kalemler k ON k.id=s.kalem_id"
+        " WHERE k.birim = 'kg'").fetchone()[0]
+    gun = (BITIS - BASLANGIC).days + 1
+    print(f"kasa: {hesap.kasa(baglanti):,.0f}  borç: {hesap.borc(baglanti):,.0f}")
+    print(f"toplam ciro: {ciro:,.0f} TL   dondurma: {kg:,.0f} kg"
+          f"   günlük ortalama: {kg/gun:,.1f} kg / {ciro/gun:,.0f} TL")
 
 
 if __name__ == "__main__":

@@ -543,13 +543,16 @@ def _dagitilan_maliyeti_yay(baglanti, sayim_id, tuketimler, tumu):
         return
 
     satislar = baglanti.execute(
-        "SELECT id, miktar FROM satislar WHERE sayim_id = ?", (sayim_id,)
+        "SELECT id, tutar FROM satislar WHERE sayim_id = ?", (sayim_id,)
     ).fetchall()
-    toplam_miktar = sum(satis["miktar"] for satis in satislar)
-    if toplam_miktar <= 0:
+    # Pay tutara gore veriliyor, miktara gore degil: ayni gunde kilo ile satilan
+    # dondurma da adetle satilan su da varsa, "150 kg" ile "150 sise" yan yana
+    # toplanamaz. Tutar ikisi icin de ayni birim.
+    toplam_tutar = sum(satis["tutar"] for satis in satislar)
+    if toplam_tutar <= 0:
         return
     for satis in satislar:
-        pay = toplam * satis["miktar"] / toplam_miktar
+        pay = toplam * satis["tutar"] / toplam_tutar
         baglanti.execute(
             "UPDATE satislar SET maliyet = maliyet + ? WHERE id = ?", (pay, satis["id"])
         )
@@ -582,37 +585,40 @@ def kayit_sil(baglanti, tur, kayit_id):
 
 # ---------------------------------------------------------------- ozet ve oneriler
 
-def gun_ozeti(baglanti, tarih):
+def aralik_ozeti(baglanti, bas, son):
+    """Iki tarih arasindaki (ikisi de dahil) para ozeti.
+
+    Gunluk ozet bunun ozel hali: baslangic ile bitis ayni gun.
+    """
+    def tek(sorgu):
+        return baglanti.execute(sorgu, (bas, son)).fetchone()[0]
+
     ciro, maliyet = baglanti.execute(
         "SELECT COALESCE(SUM(tutar), 0), COALESCE(SUM(maliyet), 0)"
-        " FROM satislar WHERE tarih = ?", (tarih,)
+        " FROM satislar WHERE tarih BETWEEN ? AND ?", (bas, son)
     ).fetchone()
-    gider = baglanti.execute(
-        "SELECT COALESCE(SUM(tutar), 0) FROM giderler WHERE tarih = ?", (tarih,)
-    ).fetchone()[0]
-    alim_pesin = baglanti.execute(
-        "SELECT COALESCE(SUM(tutar), 0) FROM alimlar WHERE tarih = ? AND odeme = 'pesin'",
-        (tarih,),
-    ).fetchone()[0]
-    alim_veresiye = baglanti.execute(
-        "SELECT COALESCE(SUM(tutar), 0) FROM alimlar WHERE tarih = ? AND odeme <> 'pesin'",
-        (tarih,),
-    ).fetchone()[0]
-    odeme = baglanti.execute(
-        "SELECT COALESCE(SUM(tutar), 0) FROM odemeler WHERE tarih = ?", (tarih,)
-    ).fetchone()[0]
-    uretim_maliyeti = baglanti.execute(
-        "SELECT COALESCE(SUM(maliyet), 0) FROM uretimler WHERE tarih = ?", (tarih,)
-    ).fetchone()[0]
+    gider = tek("SELECT COALESCE(SUM(tutar), 0) FROM giderler"
+                " WHERE tarih BETWEEN ? AND ?")
+    alim_pesin = tek("SELECT COALESCE(SUM(tutar), 0) FROM alimlar"
+                     " WHERE tarih BETWEEN ? AND ? AND odeme = 'pesin'")
+    alim_veresiye = tek("SELECT COALESCE(SUM(tutar), 0) FROM alimlar"
+                        " WHERE tarih BETWEEN ? AND ? AND odeme <> 'pesin'")
+    odeme = tek("SELECT COALESCE(SUM(tutar), 0) FROM odemeler"
+                " WHERE tarih BETWEEN ? AND ?")
+    uretim_maliyeti = tek("SELECT COALESCE(SUM(maliyet), 0) FROM uretimler"
+                          " WHERE tarih BETWEEN ? AND ?")
     # Sarf tutari zaten satis maliyetine dagitildi; burada ayrica gosterilsin diye.
-    sarf = baglanti.execute(
-        "SELECT COALESCE(SUM(-h.miktar * k.birim_fiyat), 0) FROM stok_hareketleri h"
-        " JOIN kalemler k ON k.id = h.kalem_id WHERE h.tarih = ? AND h.sebep = 'Sarf'",
-        (tarih,),
-    ).fetchone()[0]
+    sarf = tek("SELECT COALESCE(SUM(-h.miktar * k.birim_fiyat), 0)"
+               " FROM stok_hareketleri h JOIN kalemler k ON k.id = h.kalem_id"
+               " WHERE h.tarih BETWEEN ? AND ? AND h.sebep = 'Sarf'")
+    # Kac ayri gunde satis olmus: haftalik/aylik ozette gunluk ortalama icin.
+    satis_gunu = tek("SELECT COUNT(DISTINCT tarih) FROM satislar"
+                     " WHERE tarih BETWEEN ? AND ?")
 
     return {
-        "tarih": tarih,
+        "tarih": bas,
+        "bas": bas,
+        "son": son,
         "ciro": ciro,
         "satis_maliyeti": maliyet,
         "brut_kar": ciro - maliyet,
@@ -624,7 +630,12 @@ def gun_ozeti(baglanti, tarih):
         "borc_odemesi": odeme,
         "kasa_degisimi": ciro - gider - alim_pesin - odeme,
         "uretim_maliyeti": uretim_maliyeti,
+        "satis_gunu": satis_gunu,
     }
+
+
+def gun_ozeti(baglanti, tarih):
+    return aralik_ozeti(baglanti, tarih, tarih)
 
 
 def gunluk_tuketim(baglanti, kalem_id, gun_sayisi):
