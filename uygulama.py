@@ -21,6 +21,7 @@ import urllib.parse
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import grafik
 import guvenlik
 import hava
 import hesap
@@ -186,6 +187,89 @@ main { padding:16px; max-width:1400px; margin:0 auto; }
 .kutu { background:#fff; border-radius:10px; padding:14px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
 .kutu .etiket { font-size:13px; color:#6b7c8f; margin-bottom:6px; }
 .kutu .deger { font-size:22px; font-weight:700; }
+/* Ustune tiklanabilen kutu: ayrintiyi acar, digerlerinden farki el imleci ve ok. */
+a.kutu { display:block; text-decoration:none; color:inherit; }
+a.kutu:hover { box-shadow:0 2px 10px rgba(15,76,117,.22); }
+a.kutu .etiket .ok { float:right; font-weight:700; }
+/* Genis ekranda iki sutuna bolunmeyip tam genisligi kaplayan kartlar. */
+.icerik > .tam { grid-column:1 / -1; }
+/* Rapor basligi: ortada donem adi, iki yaninda ileri geri oklari. */
+.donem-ust { display:flex; align-items:center; gap:10px; }
+.donem-ust h2 { margin:0; flex:1; text-align:center; }
+.ok-dugme { text-decoration:none; background:#e6ebf0; color:#33475b; border-radius:7px;
+            padding:9px 13px; font-weight:600; white-space:nowrap; }
+.ok-dugme:hover { background:#d5dee6; }
+/* Para akisi: yukaridan asagi okunan hesap. Ara sonuclar koyu ve zeminli. */
+.akis td { padding:10px 6px; }
+.akis .isaret { width:22px; text-align:center; color:#8494a5; font-weight:700; }
+.akis .sonuc td { font-weight:700; background:#f5f8fa; }
+.akis .aciklama { display:block; font-size:13px; color:#6b7c8f; font-weight:400; }
+/* Acilir bolum. Baglanti degil <details> oldugu icin sayfa yeniden yuklenmez;
+   tiklayinca yalnizca o bolum asagi dogru acilir, ekran yerinden oynamaz. */
+details.acilir { margin-top:12px; border-top:1px solid #e6ebf0; }
+details.acilir > summary { cursor:pointer; color:#0f4c75; font-weight:600;
+                           padding:10px 2px; list-style:none; }
+details.acilir > summary::-webkit-details-marker { display:none; }
+details.acilir > summary::before { content:"\u25b8\u00a0"; }
+details.acilir[open] > summary::before { content:"\u25be\u00a0"; }
+details.acilir > summary:hover { text-decoration:underline; }
+details.acilir .ic { padding-bottom:4px; }
+details.acilir h3:first-child { margin-top:4px; }
+/* Sutun genisligi icerige gore degil colgroup'a gore belirlensin: bir tablo
+   ikiye bolundugunde iki parcanin sutunlari ayni hizada dursun. */
+table.sabit { table-layout:fixed; }
+table.sabit td { overflow-wrap:anywhere; }
+
+/* ---- grafikler ------------------------------------------------------------
+   Renkler grafik.py'de duruyor, burasi sadece bicim. Isaretler ince, izgarayla
+   eksen geri planda: sayfada koyu olan tek sey verinin kendisi. */
+.serit { position:relative; display:flex; gap:2px; height:22px; margin:2px 0 12px; }
+.serit-parca { display:flex; align-items:center; justify-content:center; min-width:0; }
+/* Serit soldan basliyor: sol ucu duz, veri ucu olan sag ucu yuvarlak. */
+.serit-parca:last-child { border-radius:0 4px 4px 0; }
+.serit-parca:hover { filter:brightness(1.08); }
+.serit-ic { font-size:12px; font-weight:700; white-space:nowrap; }
+/* Gider ciroyu asinca cironun nerede bittigini gosteren cizgi. */
+.serit-isaret { position:absolute; top:-5px; bottom:-5px; width:2px; background:#1c2733; }
+.anahtar { display:flex; flex-wrap:wrap; gap:6px 18px; list-style:none;
+           margin:0; padding:0; font-size:14px; color:#4a5b6e; }
+.anahtar li { display:flex; align-items:center; gap:6px; }
+.anahtar b { color:#1c2733; font-weight:600; }
+.anahtar-nokta { width:11px; height:11px; border-radius:3px; flex:none; }
+
+.cubuklar { margin-top:4px; }
+.cubuk-satir { margin-bottom:13px; }
+.cubuk-satir:last-child { margin-bottom:2px; }
+.cubuk-ust { display:flex; justify-content:space-between; gap:14px;
+             font-size:15px; margin-bottom:5px; }
+.cubuk-ust span { overflow-wrap:anywhere; }
+.cubuk-ust b { white-space:nowrap; font-weight:600; }
+.cubuk-yol { height:10px; background:#eef2f5; border-radius:0 5px 5px 0; }
+.cubuk-dolgu { display:block; height:100%; border-radius:0 4px 4px 0; }
+.cubuk-satir:hover .cubuk-dolgu { filter:brightness(1.08); }
+
+.sutun-grafik { position:relative; padding-top:18px; margin-top:4px; }
+/* Tavan cizgisi en yuksek sutunun boyu; yanindaki sayi olcegi verir. */
+.sutun-tavan { position:absolute; left:0; right:0; top:18px; border-top:1px solid #e6ebf0; }
+.sutun-tavan span { position:absolute; top:-17px; left:0; font-size:12px; color:#6b7c8f; }
+.sutun-sira { display:flex; gap:2px; height:150px; border-bottom:1px solid #cfd8e0; }
+.sutun { flex:1 1 0; min-width:0; display:flex; align-items:flex-end;
+         justify-content:center; text-decoration:none; }
+/* Sutun bandi doldurulmuyor: kalan bosluk grafigi ferah tutuyor. */
+.sutun-cubuk { display:block; width:100%; max-width:24px; border-radius:4px 4px 0 0; }
+.sutun:hover .sutun-cubuk { filter:brightness(1.08); }
+.sutun-etiketler { display:flex; gap:2px; margin-top:7px; }
+.sutun-etiketler span { flex:1 1 0; min-width:0; text-align:center;
+                        font-size:12px; color:#6b7c8f; white-space:nowrap; }
+.sutun-etiketler span.secili { color:#1c2733; font-weight:600; }
+/* Uclardaki yazi sutunun ortasina gore degil kartin icine hizalanir; yoksa
+   '17 Ağu' gibi uzun bir yazi son sutunda kartin disina tasiyor. */
+.sutun-etiketler span:first-child { text-align:left; }
+.sutun-etiketler span:last-child { text-align:right; }
+.grafik-alt { margin:10px 0 0; font-size:14px; color:#4a5b6e; }
+.grafik-alt b { color:#1c2733; }
+/* Raporun uc buyuk rakami: az sayida olduklari icin seridi paylasarak doldururlar. */
+.kutular.baslik { grid-template-columns:repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
 .hava-simge { margin-right:6px; }
 .yesil { color:#1b7f4f; } .kirmizi { color:#c1392b; } .mavi { color:#0f4c75; } .gri { color:#6b7c8f; }
 table { width:100%; border-collapse:collapse; font-size:15px; }
@@ -369,10 +453,15 @@ def giris_sayfasi(baglanti, hata=""):
 <button style="margin-top:14px">Gir</button></form></div></main></body></html>"""
 
 
-def kutu(etiket, deger, renk="mavi", alt=""):
+def kutu(etiket, deger, renk="mavi", alt="", adres="", ok=""):
+    """adres verilirse kutunun tamami tiklanabilir bir baglanti olur."""
     alt_html = f'<div class="etiket" style="margin:4px 0 0">{alt}</div>' if alt else ""
-    return (f'<div class="kutu"><div class="etiket">{kacir(etiket)}</div>'
-            f'<div class="deger {renk}">{deger}</div>{alt_html}</div>')
+    ok_html = f'<span class="ok">{ok}</span>' if ok else ""
+    etiket_html = f'<div class="etiket">{ok_html}{kacir(etiket)}</div>'
+    govde = f'{etiket_html}<div class="deger {renk}">{deger}</div>{alt_html}'
+    if adres:
+        return f'<a class="kutu" href="{adres}">{govde}</a>'
+    return f'<div class="kutu">{govde}</div>'
 
 
 def tarih_alani(tarih):
@@ -1036,66 +1125,388 @@ def sayfa_para(baglanti, sorgu):
 
 # ---------------------------------------------------------------- raporlar
 
-def sayfa_ozet(baglanti, sorgu):
-    tarih = sorgu.get("tarih", [hesap.bugun()])[0]
-    ozet = hesap.gun_ozeti(baglanti, tarih)
+# Raporlar dort pencereden bakar: tek gun, hafta, ay ve tum zamanlar.
+# Hepsi ayni hesaba dayanir, degisen tek sey bakilan tarih araligi.
+RAPOR_KIPLERI = (("gun", "Gün"), ("hafta", "Hafta"), ("ay", "Ay"), ("tum", "Tümü"))
+COK_ESKI, COK_YENI = "0001-01-01", "9999-12-31"
 
-    gunler = baglanti.execute(
-        "SELECT tarih, SUM(tutar) AS ciro, SUM(tutar - maliyet) AS brut"
-        " FROM satislar GROUP BY tarih ORDER BY tarih DESC LIMIT 30"
-    ).fetchall()
-    gun_satirlari = "".join(
-        f"<tr><td><a href='/ozet?tarih={kacir(g['tarih'])}'>{kacir(g['tarih'])}</a></td>"
-        f"<td class='sag'>{para(g['ciro'])}</td>"
-        f"<td class='sag'>{para(g['brut'])}</td></tr>" for g in gunler
-    ) or "<tr><td class='bos' colspan='3'>Henüz satış kaydı yok.</td></tr>"
 
-    analiz = baglanti.execute(
-        "SELECT k.ad, k.birim, SUM(s.miktar) AS miktar, SUM(s.tutar) AS ciro,"
-        " SUM(s.tutar - s.maliyet) AS kar FROM satislar s"
-        " JOIN kalemler k ON k.id = s.kalem_id GROUP BY k.id ORDER BY kar DESC"
+def _ay_kaydir(gun, adim):
+    """Bir ayin ilk gununu adim kadar ileri (ya da geri) tasir."""
+    toplam = gun.year * 12 + (gun.month - 1) + adim
+    return datetime.date(toplam // 12, toplam % 12 + 1, 1)
+
+
+def _hafta_yaz(baslangic):
+    """Pazartesiden pazara: '17-23 Ağustos 2026'."""
+    bitis = baslangic + datetime.timedelta(days=6)
+    if baslangic.month == bitis.month:
+        return f"{baslangic.day}–{bitis.day} {AYLAR[bitis.month - 1]} {bitis.year}"
+    return (f"{baslangic.day} {AYLAR[baslangic.month - 1]} – "
+            f"{bitis.day} {AYLAR[bitis.month - 1]} {bitis.year}")
+
+
+def _rapor_araligi(kip, tarih):
+    """Kip ve tarihten donemi cikarir: (bas, son, baslik, onceki, sonraki).
+
+    'onceki' ve 'sonraki', bir onceki/sonraki donemin icinden birer tarihtir;
+    tum zamanlarda ileri geri gitmek anlamsiz oldugu icin bos donerler.
+    """
+    try:
+        gun = datetime.date.fromisoformat(tarih)
+    except (ValueError, TypeError):
+        gun = datetime.date.today()
+    bir_hafta = datetime.timedelta(days=7)
+
+    if kip == "hafta":
+        baslangic = gun - datetime.timedelta(days=gun.weekday())   # pazartesi
+        return (baslangic.isoformat(),
+                (baslangic + datetime.timedelta(days=6)).isoformat(),
+                _hafta_yaz(baslangic) + " haftası",
+                (baslangic - bir_hafta).isoformat(),
+                (baslangic + bir_hafta).isoformat())
+    if kip == "ay":
+        baslangic = gun.replace(day=1)
+        bitis = _ay_kaydir(baslangic, 1) - datetime.timedelta(days=1)
+        return (baslangic.isoformat(), bitis.isoformat(),
+                f"{AYLAR[baslangic.month - 1]} {baslangic.year}",
+                _ay_kaydir(baslangic, -1).isoformat(),
+                _ay_kaydir(baslangic, 1).isoformat())
+    if kip == "tum":
+        return COK_ESKI, COK_YENI, "Tüm zamanlar", "", ""
+    return (gun.isoformat(), gun.isoformat(), gun_yaz(gun.isoformat()),
+            (gun - datetime.timedelta(days=1)).isoformat(),
+            (gun + datetime.timedelta(days=1)).isoformat())
+
+
+def _rapor_adresi(kip, tarih):
+    return f"/ozet?kip={kip}&tarih={urllib.parse.quote(tarih)}"
+
+
+# Alt listedeki satirlarin nasil gruplanacagi: SQL ifadesi, sutun basligi,
+# kac satir gosterilecegi ve kartin basligi.
+DONEM_LISTESI = {
+    "gun":   ("tarih", "Tarih", 30, "Son günler"),
+    "hafta": ("date(tarih, '-6 days', 'weekday 1')", "Hafta", 12, "Son haftalar"),
+    "ay":    ("substr(tarih, 1, 7)", "Ay", 12, "Son aylar"),
+    "tum":   ("substr(tarih, 1, 7)", "Ay", 24, "Aylara göre"),
+}
+
+
+def _donem_etiketi(kip, anahtar):
+    """Gruplama anahtarini ('2026-08' gibi) okunur bir yaziya cevirir."""
+    if kip == "gun":
+        return gun_yaz(anahtar)
+    if kip == "hafta":
+        try:
+            return _hafta_yaz(datetime.date.fromisoformat(anahtar))
+        except (ValueError, TypeError):
+            return anahtar
+    try:
+        yil, ay = anahtar.split("-")
+        return f"{AYLAR[int(ay) - 1]} {yil}"
+    except (ValueError, IndexError):
+        return anahtar
+
+
+def _donem_baglantisi(kip, anahtar):
+    """Listedeki satira tiklayinca acilacak donem; ay anahtarina '-01' eklenir."""
+    hedef = "ay" if kip == "tum" else kip
+    return _rapor_adresi(hedef, f"{anahtar}-01" if hedef == "ay" else anahtar)
+
+
+GIDER_ACIKLAMA = ("Gider, malzeme alımı dışında kalan harcamalardır: kira, "
+                  "elektrik, su, personel, bakım, vergi gibi. Süt, külah, kakao "
+                  "gibi malzemeye ödenen para gidere değil, \u201cAlımlar ve "
+                  "ödemeler\u201d bölümüne yazılır.")
+
+
+def _gider_ayrintisi(baglanti, bas, son, kip):
+    """Giderlerin dökümü. Sayfa yenilenmesin diye acilir bolum olarak durur."""
+    gruplar = baglanti.execute(
+        "SELECT CASE WHEN TRIM(aciklama) = '' THEN 'Açıklama yazılmamış'"
+        " ELSE TRIM(aciklama) END AS ad, COUNT(*) AS adet, SUM(tutar) AS tutar"
+        " FROM giderler WHERE tarih BETWEEN ? AND ?"
+        " GROUP BY ad ORDER BY tutar DESC", (bas, son)
     ).fetchall()
-    analiz_satirlari = "".join(
-        f"<tr><td>{kacir(a['ad'])}</td>"
-        f"<td class='sag'>{mik(a['miktar'])} {kacir(a['birim'])}</td>"
-        f"<td class='sag'>{para(a['ciro'])}</td><td class='sag'>{para(a['kar'])}</td>"
-        f"<td class='sag'>{para(a['kar'] / a['miktar']) if a['miktar'] else '—'}</td></tr>"
-        for a in analiz
-    ) or "<tr><td class='bos' colspan='5'>Henüz satış kaydı yok.</td></tr>"
+    kayitlar = baglanti.execute(
+        "SELECT tarih, aciklama, tutar FROM giderler WHERE tarih BETWEEN ? AND ?"
+        " ORDER BY tarih DESC, id DESC", (bas, son)
+    ).fetchall()
+
+    if not kayitlar:
+        return f"""
+<details class="acilir"><summary>Gider ne demek?</summary>
+<div class="ic"><p class="bos">Bu dönemde hiç gider girilmemiş.</p>
+<p class="bos">{GIDER_ACIKLAMA}</p></div></details>"""
+
+    toplam = sum(k["tutar"] for k in kayitlar)
+    # Cubuklar toplam gidere gore olcekleniyor: uzunluk dogrudan "payi ne kadar"
+    # demek oluyor, ayri bir yuzde sutununa gerek kalmiyor.
+    grup_cubuklari = grafik.cubuk_listesi(
+        [(g["ad"] + (f" ({g['adet']} kez)" if g["adet"] > 1 else ""),
+          para(g["tutar"]), grafik.oran(g["tutar"], toplam),
+          f"{g['ad']} — {para(g['tutar'])}, giderlerin"
+          f" %{grafik.oran(g['tutar'], toplam):.0f}'i")
+         for g in gruplar],
+        grafik.TURUNCU,
+        "Gider kalemleri, büyükten küçüğe; çubuk uzunluğu toplam gider içindeki payı.")
+    kayit_satirlari = "".join(
+        f"<tr><td>{kacir(gun_yaz(k['tarih'], False))}</td>"
+        f"<td>{kacir(k['aciklama'] or '—')}</td>"
+        f"<td class='sag'>{para(k['tutar'])}</td></tr>"
+        for k in kayitlar
+    )
+    # Tek gunde gruplama listeyle ayni seyi gosterir; sadece uzun donemde anlamli.
+    grup_bolumu = "" if kip == "gun" else f"""
+<h3>Neye harcanmış</h3>{grup_cubuklari}
+<p class="grafik-alt">Toplam <b>{para(toplam)}</b></p>
+<h3>Tek tek kayıtlar</h3>"""
 
     return f"""
-<div class="kart"><h2>Gün seç</h2>
-<form method="get" action="/ozet"><div class="satir">
-<div>{tarih_alani(tarih)}</div>
-<div style="align-self:end"><button class="ikincil">Göster</button></div>
-</div></form></div>
+<details class="acilir"><summary>Giderler neye harcandı?</summary>
+<div class="ic"><p class="bos">{GIDER_ACIKLAMA}</p>{grup_bolumu}
+<table><tr><th>Tarih</th><th>Ne için</th><th class='sag'>Tutar</th></tr>
+{kayit_satirlari}
+<tr><td><b>Toplam</b></td><td></td><td class='sag'><b>{para(toplam)}</b></td></tr></table>
+<p class="bos" style="margin-top:10px">Gider eklemek ya da silmek için
+<a href="/para">Alım / Gider</a> sayfasını kullan.</p></div></details>"""
 
-<div class="kutular">
-{kutu("Ciro", para(ozet["ciro"]), "mavi")}
-{kutu("Satılanın maliyeti", para(ozet["satis_maliyeti"]), "gri")}
-{kutu("Brüt kâr", para(ozet["brut_kar"]), "yesil")}
-{kutu("Giderler", para(ozet["gider"]), "gri")}
-{kutu("Net kâr", para(ozet["net_kar"]), "yesil" if ozet["net_kar"] >= 0 else "kirmizi")}
-{kutu("Kasa değişimi", para(ozet["kasa_degisimi"]),
-      "yesil" if ozet["kasa_degisimi"] >= 0 else "kirmizi",
-      "kâr değil, o gün kasaya net giren para")}
-</div>
 
-<div class="kart"><h2>{kacir(tarih)} detayı</h2><table>
+# Uzun tablolarda bastan kac satir gorunecek; gerisi acilir bolumde durur.
+KISA_LISTE = 6
+
+
+def _tablo_bolumu(genislikler, basliklar, satirlar, ozet_metni):
+    """Grafigin rakam ikizi: yerinde acilan bolumde duran tam tablo.
+
+    Grafik goz icin, tablo kesin rakam icin. Grafikteki her deger burada da
+    yaziyor, boylece hicbir bilgi yalnizca renge ya da uzunluga kalmiyor.
+    """
+    if not satirlar:
+        return ""
+    grup = ("<colgroup>"
+            + "".join(f'<col style="width:{g}">' for g in genislikler)
+            + "</colgroup>")
+    return (f"<details class='acilir'><summary>{ozet_metni}</summary>"
+            f"<div class='ic'><table class='sabit'>{grup}<tr>{basliklar}</tr>"
+            f"{''.join(satirlar)}</table></div></details>")
+
+
+KISA_AYLAR = ["Oca", "Şub", "Mar", "Nis", "May", "Haz",
+              "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"]
+
+# Sutun altina kac yazi sigar: gunler dar oldugu icin en az, aylar en cok.
+ETIKET_SIKLIGI = {"gun": 8, "hafta": 6, "ay": 12, "tum": 12}
+
+
+def _sutun_etiketi(kip, anahtar, yil_yaz):
+    """Grafigin altina yazilacak kisa donem adi: '19', '17 Ağu', 'Ağu'."""
+    try:
+        if kip in ("ay", "tum"):
+            yil, ay = anahtar.split("-")[:2]
+            kisa = KISA_AYLAR[int(ay) - 1]
+            return f"{kisa} {yil[2:]}" if yil_yaz else kisa
+        gun = datetime.date.fromisoformat(anahtar)
+    except (ValueError, IndexError, TypeError):
+        return anahtar
+    if kip == "hafta":
+        return f"{gun.day} {KISA_AYLAR[gun.month - 1]}"
+    # Ay basinda sadece "1" yazmak kafa karistiriyor; ay adi da yazilsin.
+    return f"1 {KISA_AYLAR[gun.month - 1]}" if gun.day == 1 else str(gun.day)
+
+
+def sayfa_ozet(baglanti, sorgu):
+    kip = sorgu.get("kip", ["gun"])[0]
+    if kip not in dict(RAPOR_KIPLERI):
+        kip = "gun"
+    tarih = sorgu.get("tarih", [hesap.bugun()])[0]
+    bas, son, baslik, onceki, sonraki = _rapor_araligi(kip, tarih)
+    ozet = hesap.aralik_ozeti(baglanti, bas, son)
+
+    sekmeler = '<div class="sekmeler">' + "".join(
+        f'<a href="{_rapor_adresi(anahtar, tarih)}" '
+        f'class="{"aktif" if anahtar == kip else ""}">{etiket}</a>'
+        for anahtar, etiket in RAPOR_KIPLERI
+    ) + "</div>"
+
+    # --- 1. serit: hangi donem --------------------------------------------
+    if kip == "tum":
+        donem_karti = (f'<div class="kart tam"><div class="donem-ust">'
+                       f'<h2>{kacir(baslik)}</h2></div>'
+                       f'<p class="bos" style="text-align:center;margin:6px 0 0">'
+                       f'Bugüne kadar girilmiş bütün kayıtlar.</p></div>')
+    else:
+        donem_karti = f"""
+<div class="kart tam"><div class="donem-ust">
+<a class="ok-dugme" href="{_rapor_adresi(kip, onceki)}">◀</a>
+<h2>{kacir(baslik)}</h2>
+<a class="ok-dugme" href="{_rapor_adresi(kip, sonraki)}">▶</a></div>
+<form method="get" action="/ozet" style="margin:14px auto 0; max-width:420px">
+<input type="hidden" name="kip" value="{kacir(kip)}">
+<div style="display:flex; gap:10px; align-items:end">
+<div style="flex:1; min-width:0">{tarih_alani(bas)}</div>
+<button class="ikincil">Göster</button></div></form></div>"""
+
+    # --- 2. serit: uc buyuk rakam -----------------------------------------
+    # Gunluk ortalama tek gun icin anlamsiz; hafta/ayda ciro kutusunun altina yazilir.
+    ciro_alt = "bu dönemde satılan"
+    if kip != "gun" and ozet["satis_gunu"]:
+        ciro_alt = (f"{ozet['satis_gunu']} günde · günde ortalama "
+                    f"{para(ozet['ciro'] / ozet['satis_gunu'])}")
+
+    # --- 3. serit: para nereye gitti --------------------------------------
+    # Seridin tamami cironun kendisi: maliyet + gider + net kar. Gider ve maliyet
+    # ciroyu asarsa (zarar edilen donem) serit toplam gidere gore olcekleniyor ve
+    # cironun nerede bittigi bir cizgiyle isaretleniyor.
+    maliyet, gider_t, net = (ozet["satis_maliyeti"], ozet["gider"], ozet["net_kar"])
+    serit_toplam = maliyet + gider_t + max(net, 0.0)
+    parcalar = [("Satılanların maliyeti", para(maliyet),
+                 grafik.oran(maliyet, serit_toplam), grafik.MAVI),
+                ("Giderler", para(gider_t),
+                 grafik.oran(gider_t, serit_toplam), grafik.TURUNCU)]
+    isaret, zarar_notu = None, ""
+    if net >= 0:
+        parcalar.append(("Net kâr", para(net),
+                         grafik.oran(net, serit_toplam), grafik.YESIL))
+        aria = (f"Ciro {para(ozet['ciro'])}; bunun"
+                f" %{grafik.oran(maliyet, serit_toplam):.0f}'i satılanların maliyeti,"
+                f" %{grafik.oran(gider_t, serit_toplam):.0f}'i giderler,"
+                f" %{grafik.oran(net, serit_toplam):.0f}'i net kâr.")
+    else:
+        isaret = (grafik.oran(ozet["ciro"], serit_toplam),
+                  f"Ciro burada bitiyor: {para(ozet['ciro'])}")
+        zarar_notu = (f'<p class="grafik-alt" style="color:#c1392b">Maliyet ve gider'
+                      f' cironun üstünde: bu dönem <b style="color:#c1392b">'
+                      f'{para(-net)} zarar</b>.</p>')
+        aria = (f"Maliyet ve giderler toplamı {para(serit_toplam)}, ciro"
+                f" {para(ozet['ciro'])}; aradaki fark {para(-net)} zarar.")
+    serit = grafik.yigilmis_serit(parcalar, aria, isaret) + zarar_notu
+
+    akis = f"""
+<div class="kart"><h2>Para nereye gitti?</h2>
+{serit}
+<table class="akis">
+<tr><td class="isaret"></td><td>Ciro
+<span class="aciklama">satıştan gelen para</span></td>
+<td class="sag">{para(ozet['ciro'])}</td></tr>
+<tr><td class="isaret">−</td><td>Satılanların maliyeti
+<span class="aciklama">satılan ürünlerin içine giren malzeme</span></td>
+<td class="sag">{para(ozet['satis_maliyeti'])}</td></tr>
+<tr class="sonuc"><td class="isaret">=</td><td>Brüt kâr</td>
+<td class="sag">{para(ozet['brut_kar'])}</td></tr>
+<tr><td class="isaret">−</td><td>Giderler
+<span class="aciklama">kira, elektrik, personel, vergi…</span></td>
+<td class="sag">{para(ozet['gider'])}</td></tr>
+<tr class="sonuc"><td class="isaret">=</td><td>Net kâr</td>
+<td class="sag">{para(ozet['net_kar'])}</td></tr>
+</table>
+{_gider_ayrintisi(baglanti, bas, son, kip)}</div>"""
+
+    # --- 4. serit: kar hesabina girmeyen para hareketleri -----------------
+    alimlar = f"""
+<div class="kart"><h2>Alımlar ve ödemeler</h2>
+<p class="bos">Bunlar yukarıdaki kâr hesabına girmez: alınan malzeme stoğa yazılır,
+kâr ancak o malzeme satıldığında ortaya çıkar. Buradaki rakamlar paranın
+kasadan ne zaman çıktığını gösterir.</p>
+<table>
 <tr><td>Peşin alımlar</td><td class='sag'>{para(ozet['alim_pesin'])}</td></tr>
-<tr><td>Veresiye alımlar (borca yazıldı)</td><td class='sag'>{para(ozet['alim_veresiye'])}</td></tr>
+<tr><td>Veresiye alımlar <span class="bos">(borca yazıldı)</span></td>
+<td class='sag'>{para(ozet['alim_veresiye'])}</td></tr>
 <tr><td>Tedarikçiye ödenen</td><td class='sag'>{para(ozet['borc_odemesi'])}</td></tr>
 <tr><td>Üretime giren malzeme</td><td class='sag'>{para(ozet['uretim_maliyeti'])}</td></tr>
-</table></div>
+</table></div>"""
 
-<div class="kart"><h2>Ürünlere göre kârlılık (tüm zamanlar)</h2><table>
-<tr><th>Ürün</th><th class='sag'>Satılan</th><th class='sag'>Ciro</th>
-<th class='sag'>Kâr</th><th class='sag'>Birim başına kâr</th></tr>
-{analiz_satirlari}</table></div>
+    # --- 5. serit: urunler -------------------------------------------------
+    urunler = baglanti.execute(
+        "SELECT k.ad, k.birim, SUM(s.miktar) AS miktar, SUM(s.tutar) AS ciro,"
+        " SUM(s.tutar - s.maliyet) AS kar FROM satislar s"
+        " JOIN kalemler k ON k.id = s.kalem_id WHERE s.tarih BETWEEN ? AND ?"
+        " GROUP BY k.id ORDER BY kar DESC", (bas, son)
+    ).fetchall()
+    # Grafikte ilk alti urun; cubuklar en cok kazandirana gore olcekli.
+    en_yuksek_kar = max((u["kar"] for u in urunler), default=0.0)
+    urun_cubuklari = grafik.cubuk_listesi(
+        [(u["ad"], para(u["kar"]), grafik.oran(u["kar"], en_yuksek_kar),
+          f"{u['ad']} — {mik(u['miktar'])} {u['birim']} satıldı,"
+          f" ciro {para(u['ciro'])}, kâr {para(u['kar'])}")
+         for u in urunler[:KISA_LISTE]],
+        grafik.MAVI,
+        "Ürünler kâra göre sıralı; çubuk uzunluğu en çok kazandırana oranla.")
+    urun_satirlari = [
+        f"<tr><td>{kacir(u['ad'])}</td>"
+        f"<td class='sag'>{mik(u['miktar'])} {kacir(u['birim'])}</td>"
+        f"<td class='sag'>{para(u['ciro'])}</td>"
+        f"<td class='sag'>{para(u['kar'])}</td></tr>"
+        for u in urunler
+    ]
+    urun_karti = f"""
+<div class="kart"><h2>En çok kazandıran ürünler</h2>
+{urun_cubuklari if urunler else grafik.bos("Bu dönemde satış kaydı yok.")}
+{_tablo_bolumu(("30%", "20%", "25%", "25%"),
+               "<th>Ürün</th><th class='sag'>Satılan</th><th class='sag'>Ciro</th>"
+               "<th class='sag'>Kâr</th>",
+               urun_satirlari,
+               f"{len(urun_satirlari)} ürünün tamamını tablo olarak gör")}</div>"""
 
-<div class="kart"><h2>Son günler</h2><table>
-<tr><th>Tarih</th><th class='sag'>Ciro</th><th class='sag'>Brüt kâr</th></tr>
-{gun_satirlari}</table></div>
+    # --- 6. serit: donemin gidisati ---------------------------------------
+    grup, sutun, adet, liste_basligi = DONEM_LISTESI[kip]
+    donemler = baglanti.execute(
+        f"SELECT {grup} AS anahtar, SUM(tutar) AS ciro, SUM(tutar - maliyet) AS brut"
+        " FROM satislar GROUP BY anahtar ORDER BY anahtar DESC LIMIT ?", (adet,)
+    ).fetchall()
+    donem_satirlari = []
+    for donem in donemler:
+        anahtar = donem["anahtar"] or ""
+        # Bakilan donem listede de isaretli dursun: '2026-08' ayi '2026-08-01' ile eslesir.
+        vurgu = " style='background:#f4f9ff'" if anahtar == bas[:len(anahtar)] else ""
+        donem_satirlari.append(
+            f"<tr{vurgu}><td><a href='{_donem_baglantisi(kip, anahtar)}'>"
+            f"{kacir(_donem_etiketi(kip, anahtar))}</a></td>"
+            f"<td class='sag'>{para(donem['ciro'])}</td>"
+            f"<td class='sag'>{para(donem['brut'])}</td></tr>")
+    # Grafik zaman siralamasi ister: tablo yeniden eskiye, grafik soldan saga.
+    eskiden = list(reversed(donemler))
+    tavan = max((d["ciro"] for d in eskiden), default=0.0)
+    yillar = {(d["anahtar"] or "")[:4] for d in eskiden}
+    ham_etiketler = [_sutun_etiketi(kip, d["anahtar"] or "", len(yillar) > 1)
+                     for d in eskiden]
+    etiketler = grafik.etiket_seyrelt(ham_etiketler, ETIKET_SIKLIGI[kip])
+    noktalar = []
+    for donem, etiket in zip(eskiden, etiketler):
+        anahtar = donem["anahtar"] or ""
+        secili = anahtar == bas[:len(anahtar)]
+        noktalar.append((
+            etiket, grafik.oran(donem["ciro"], tavan), secili,
+            _donem_baglantisi(kip, anahtar),
+            f"{_donem_etiketi(kip, anahtar)} — ciro {para(donem['ciro'])},"
+            f" brüt kâr {para(donem['brut'])}"))
+    gidisat_grafigi = grafik.sutun_grafigi(
+        noktalar, grafik.kisa_para(tavan, PARA),
+        f"{liste_basligi}: ciro sütunları, eskiden yeniye.",
+        "Koyu sütun şu an baktığın dönem. Sütuna tıklayınca o dönemin raporu açılır.")
+
+    gidisat_karti = f"""
+<div class="kart"><h2>{liste_basligi}</h2>
+{gidisat_grafigi if noktalar else grafik.bos("Henüz satış kaydı yok.")}
+{_tablo_bolumu(("40%", "30%", "30%"),
+               f"<th>{sutun}</th><th class='sag'>Ciro</th><th class='sag'>Brüt kâr</th>",
+               donem_satirlari, "Rakamları tablo olarak gör")}</div>"""
+
+    return f"""{sekmeler}
+{donem_karti}
+<div class="kutular baslik">
+{kutu("Ciro", para(ozet["ciro"]), "mavi", ciro_alt)}
+{kutu("Net kâr", para(ozet["net_kar"]),
+      "yesil" if ozet["net_kar"] >= 0 else "kirmizi", "giderler düşüldükten sonra")}
+{kutu("Kasa değişimi", para(ozet["kasa_degisimi"]),
+      "yesil" if ozet["kasa_degisimi"] >= 0 else "kirmizi",
+      "kâr değil; kasaya net giren para")}
+</div>
+{akis}
+{alimlar}
+{urun_karti}
+{gidisat_karti}
 {_tahmin_baglantisi(baglanti)}"""
 
 
