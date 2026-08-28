@@ -2,7 +2,12 @@
 # Ciro, kasa, borç, alış fiyatları ve tedarikçiler hep veritabanının içinde.
 # Bir kere gönderilirse geçmişten temizlemek çok zor, o yüzden ilk günden hariç.
 # Programın çalışması için gerek de yok: veritabanı ilk açılışta kendi kuruluyor.
+#
+# Her dükkanın verisi dukkanlar/dukkan-1.db, dukkan-2.db... diye ayrı ayrı
+# durur; kimin hangi dükkana girebileceği ise kullanicilar.db'de. Aşağıdaki
+# satır hepsini birden kapsıyor - şifre özetleri de dahil.
 *.db
+dukkanlar/
 
 # Eski sürümden kalma kurulum dosyaları. Kod bunların hiçbirini okumuyor,
 # ama içlerinde tedarikçi adları ve alış fiyatları yazılı.

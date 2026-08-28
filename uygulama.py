@@ -25,6 +25,7 @@ import grafik
 import guvenlik
 import hava
 import hesap
+import hesaplar
 import tahmin as tahmin_modulu
 import takvim
 import veritabani
@@ -35,7 +36,16 @@ from veritabani import ayar, ayar_yaz, sayi
 # acmanin ya da yerel ag adresi yazdirmanin anlami yok.
 PORT = int(os.environ.get("PORT") or 8000)
 SUNUCUDA = "PORT" in os.environ
-PARA = "TL"   # her istekte ayarlardan tazelenir
+
+# Istegi karsilayan is parcaciginin kendine ait bilgileri. Program birden
+# fazla dukkana hizmet ettigi icin bunlar ORTAK olamaz: iki dukkan ayni anda
+# kullanirken, ortak bir degiskene yazilan para birimi otekinin ekranina
+# dusebilirdi. threading.local her is parcacigina ayri bir kopya verir.
+_istek = threading.local()
+
+
+def para_birimi():
+    return getattr(_istek, "para", "TL")
 
 
 # ---------------------------------------------------------------- bicimlendirme
@@ -47,7 +57,7 @@ def tl(deger):
 
 
 def para(deger):
-    return f"{tl(deger)} {PARA}"
+    return f"{tl(deger)} {para_birimi()}"
 
 
 def mik(deger, basamak=2):
@@ -113,6 +123,43 @@ def tur_alani(baglanti, deger="", liste_adi="turler"):
     secenekler = "".join(f'<option value="{kacir(tur)}">' for tur in hesap.turler(baglanti))
     return (f'<input type="text" name="tur" list="{liste_adi}" value="{kacir(deger)}"'
             f' placeholder="Hammadde"><datalist id="{liste_adi}">{secenekler}</datalist>')
+
+
+# Programda baska hicbir yerde betik yok; burada zorunlu, cunku bir alanin
+# gizli mi acik mi olacagini HTML tek basina degistiremiyor. Kutu, kendi
+# formundaki butun sifre alanlarini birden acar - "sifre" ve "sifre tekrar"
+# ayri ayri isaretlenmek zorunda kalmasin.
+#
+# Dinleyici sayfanin tamamina bir kere baglanir; boylece kac tane sifre formu
+# olursa olsun tek betik yetiyor. Betik calismazsa alanlar gizli kalir, yani
+# en kotu ihtimalde ozellik yok - sifre acikta kalmaz.
+SIFRE_BETIGI = """<script>
+document.addEventListener('change', function (olay) {
+  var kutu = olay.target;
+  if (!kutu.classList || !kutu.classList.contains('sifre-goster')) return;
+  var form = kutu.form;
+  if (!form) return;
+  var alanlar = form.querySelectorAll('input[data-sifre]');
+  for (var i = 0; i < alanlar.length; i++) {
+    alanlar[i].type = kutu.checked ? 'text' : 'password';
+  }
+});
+</script>"""
+
+SIFRE_GOSTER = ('<label class="goster"><input type="checkbox" class="sifre-goster">'
+                'Şifreyi göster</label>')
+
+
+def sifre_alani(ad, etiket, otomatik="new-password", odak=False):
+    """Etiketiyle birlikte bir sifre alani.
+
+    data-sifre isareti, "goster" kutusunun hangi alanlari acacagini bilmesi
+    icin. Sadece isaretli alanlar aciliyor; kullanici adi gibi baska alanlara
+    dokunulmuyor.
+    """
+    return (f'<label>{kacir(etiket)}</label>'
+            f'<input type="password" data-sifre name="{ad}"'
+            f' autocomplete="{otomatik}"{" autofocus" if odak else ""}>')
 
 
 def kutucuk(ad, isaretli, etiket):
@@ -277,9 +324,13 @@ th, td { text-align:left; padding:9px 6px; border-bottom:1px solid #e6ebf0; }
 th { font-size:13px; color:#6b7c8f; font-weight:600; }
 td.sag, th.sag { text-align:right; }
 input, select, button { font-size:16px; font-family:inherit; }
-input[type=text], input[type=number], input[type=date], select {
+input[type=text], input[type=number], input[type=date], input[type=password], select {
     width:100%; padding:10px; border:1px solid #cfd8e0; border-radius:7px; background:#fff; }
 label { display:block; font-size:13px; color:#6b7c8f; margin:0 0 4px; }
+/* "Sifreyi goster" kutusu: alanin hemen altinda, kucuk ve sade. */
+label.goster { display:flex; align-items:center; gap:7px; margin:7px 0 0;
+               font-size:13px; color:#6b7c8f; cursor:pointer; }
+label.goster input { width:16px; height:16px; }
 .satir { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; margin-bottom:12px; }
 .roller { display:flex; flex-wrap:wrap; gap:16px; margin:10px 0 14px; }
 button { background:#0f4c75; color:#fff; border:0; border-radius:7px; padding:12px 20px;
@@ -321,7 +372,7 @@ MENU = [
     ("/satis", "Satış", "🍦", ("/satis-giris",)),
     ("/uretim", "Üretim", "🥛", ()),
     ("/stok", "Stok", "📦", ()),
-    ("/para", "Alım / Gider", "💰", ()),
+    ("/para", "Alım / Gider", "💰", ("/calisanlar",)),
     ("/ozet", "Raporlar", "📊", ("/tahmin", "/ozel-gunler")),
     ("/ayarlar", "Ayarlar", "⚙️", ("/kalemler", "/kalem")),
 ]
@@ -338,8 +389,9 @@ def sayfa(baglanti, yol, baslik, icerik, mesaj=""):
         f'<span class="simge">{simge}</span>{ad}</a>'
         for adres, ad, simge, alt in menu_ogeleri(baglanti)
     )
-    # Cikis ancak girilecek bir sifre varsa anlamli.
-    if guvenlik.sifre_var_mi(baglanti):
+    # Cikis ancak girilmis bir hesap varsa anlamli. Dukkan icinde, defterde
+    # hic kullanici yokken program dogrudan aciliyor; orada cikis anlamsiz.
+    if getattr(_istek, "kullanici", None):
         menu += ('<form method="post" action="/cikis" style="display:contents">'
                  '<button><span class="simge">🚪</span>Çıkış</button></form>')
     # Basinda '!' olan mesaj bir uyaridir; yesil degil kirmizi kutuda gosterilir.
@@ -362,7 +414,7 @@ def sayfa(baglanti, yol, baslik, icerik, mesaj=""):
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{kacir(baslik)} - {dukkan}</title><style>{STIL}</style></head>
 <body><header><h1>{dukkan}</h1></header><nav>{menu}</nav>
-<main>{mesaj_html}{govde}</main></body></html>"""
+<main>{mesaj_html}{govde}</main>{SIFRE_BETIGI}</body></html>"""
 
 
 def _yan_hava_satirlari(baglanti, gun_sayisi=7):
@@ -390,8 +442,9 @@ def _yan_hava_satirlari(baglanti, gun_sayisi=7):
 
 
 def yan_panel(baglanti):
-    """Ana menunun solundaki tahmin sutunu: hava, yedi gunluk ciro tahmini
-    ve kisa uretim onerisi. Tahmin kapaliysa sutun hic cizilmez."""
+    """Ana menunun solundaki sutun: yedi gunluk hava ve kisa uretim onerisi.
+    Ciro tahmini burada degil, /tahmin sayfasinda. Tahmin kapaliysa sutun
+    hic cizilmez."""
     if ayar(baglanti, "tahmin_acik", "1") != "1":
         return ""
 
@@ -401,56 +454,140 @@ def yan_panel(baglanti):
                 '<a href="/ayarlar">Ayarlar</a> sayfasından ilini seç.</p></div>')
 
     sehir = kacir(ayar(baglanti, "sehir", ""))
-    model, gunler, uretimler = tahmin_modulu.ileri_tahmin(baglanti, 7)
+    model, _gunler, uretimler = tahmin_modulu.ileri_tahmin(baglanti, 7)
 
-    if gunler:
-        govde = "".join(
-            f'<div class="yan-satir"><div><b>{kacir(gun["gun_adi"])}</b>'
-            f'<div class="bos" style="font-size:12px">{kacir(gun["hava"])}</div></div>'
-            f'<div class="sag"><b>{para(gun["ciro"])}</b>'
-            f'<div class="bos" style="font-size:12px">'
-            f'{tl(gun["alt"])} – {tl(gun["ust"])}</div></div></div>'
-            for gun in gunler
-        )
-    else:
-        # Tahmin henuz calismiyorsa en azindan hava gorunsun.
-        govde = _yan_hava_satirlari(baglanti)
-        govde += f'<p class="bos" style="margin-top:10px">{kacir(tahmin_modulu.durum_metni(model))}</p>'
+    # Ana menude sadece hava gorunur. Ciro tahmini kalabalik yaptigi icin
+    # burada gosterilmiyor; rakamlar /tahmin sayfasinda duruyor.
+    govde = _yan_hava_satirlari(baglanti)
+    if not govde:
+        govde = f'<p class="bos">{kacir(tahmin_modulu.durum_metni(model))}</p>'
 
-    panel = (f'<div class="kart"><h2>{sehir} — tahmin</h2>{govde}'
+    panel = (f'<div class="kart"><h2>{sehir} — hava</h2>{govde}'
              f'<p class="bos" style="margin-top:10px">'
              f'<a href="/tahmin">Tahmin sayfasını aç</a></p></div>')
 
     acik_olanlar = [oneri for oneri in uretimler if oneri["acik"] > 0][:5]
     if acik_olanlar:
         satirlar = "".join(
-            f'<div class="yan-satir"><div>{kacir(oneri["kalem"]["ad"])}</div>'
-            f'<div class="sag"><b>{mik(oneri["parti"], 1)} '
+            f'<div class="yan-satir"><div>{kacir(oneri["kalem"]["ad"])}'
+            f'<div class="bos" style="font-size:13px">{mik(oneri["acik"], 1)} '
+            f'{kacir(oneri["kalem"]["birim"])} açık</div></div>'
+            f'<div class="sag"><b>{oneri["parti"]} '
             f'{kacir(oneri["parti_ad"])}</b></div></div>'
             for oneri in acik_olanlar
         )
         panel += (f'<div class="kart"><h2>Ne üretmeli</h2>{satirlar}'
                   f'<p class="bos" style="margin-top:10px">Tahmine göre eldeki '
-                  f'stok bu kadar yetmiyor.</p></div>')
+                  f'stok bu kadar yetmiyor. Kazan tam çırpıldığı için öneri '
+                  f'her zaman tam sayıdır.</p></div>')
 
     return panel
 
 
-def giris_sayfasi(baglanti, hata=""):
-    """Sifre ekrani. Menusuz ve tek alanli: giris yapmadan hicbir sey gorunmez."""
-    dukkan = kacir(ayar(baglanti, "dukkan_adi", "Dükkanım"))
-    uyari = f'<div class="uyari bitti"><b>{kacir(hata)}</b></div>' if hata else ""
+# Giris ve kayit ekranlarinin kendi stili. Programin geri kalani ust serit +
+# menu + kartlar duzeninde; giris ekraninda bunlarin hicbiri yok, cunku daha
+# hangi dukkana bakildigi bilinmiyor. Ekranda tek bir is var: kim oldugunu
+# soylemek. O yuzden sayfa ortada tek karttan ibaret.
+KAPAK_STIL = """
+body.kapak { min-height:100vh; margin:0; display:flex; align-items:center;
+    justify-content:center; padding:24px 16px;
+    background:linear-gradient(160deg, #14567f 0%, #0f4c75 45%, #0a3350 100%); }
+.kapak-govde { width:100%; max-width:400px; }
+/* Marka: kartin ustunde, koyu zeminin uzerinde. */
+.marka { text-align:center; margin:0 0 22px; }
+.marka .isaret { display:inline-flex; align-items:center; justify-content:center;
+    width:52px; height:52px; border-radius:14px; background:rgba(255,255,255,.12);
+    border:1px solid rgba(255,255,255,.18); font-size:26px; margin-bottom:12px; }
+.marka h1 { margin:0; color:#fff; font-size:21px; font-weight:600; letter-spacing:.2px; }
+.marka p { margin:5px 0 0; color:#a8c8e0; font-size:14px; }
+
+.kapak-kart { background:#fff; border-radius:14px; padding:26px 24px;
+    box-shadow:0 18px 45px rgba(0,0,0,.28); }
+.kapak-kart h2 { margin:0 0 4px; font-size:19px; }
+.kapak-kart .alt-baslik { margin:0 0 20px; font-size:14px; color:#6b7c8f; }
+/* Alanlar arasi bosluk tek yerden yonetilsin diye her alan bir 'oge' icinde. */
+.oge { margin-bottom:14px; }
+.kapak-kart input[type=text], .kapak-kart input[type=password] { padding:11px 12px; }
+/* Odaklanan alan belli olsun - klavyeyle gezen icin de sart. */
+.kapak-kart input:focus { outline:none; border-color:#0f4c75;
+    box-shadow:0 0 0 3px rgba(15,76,117,.14); }
+.kapak-kart button { width:100%; padding:13px; font-size:16px; margin-top:6px; }
+.kapak-kart button:hover { background:#0d4165; }
+/* Hata kutusu: kirmizi ama bagirmayan. */
+.kapak-hata { background:#fdecea; border:1px solid #f5c6c2; color:#9d2f24;
+    border-radius:8px; padding:10px 12px; margin-bottom:16px; font-size:14px; }
+/* Kartin altindaki gecis baglantisi. */
+.kapak-alt { text-align:center; margin:18px 0 0; font-size:14px; color:#a8c8e0; }
+.kapak-alt a { color:#fff; font-weight:600; }
+.kapak-ayrac { border:0; border-top:1px solid #e6ebf0; margin:20px 0 0; }
+"""
+
+
+def _kapak(baslik, icerik, alt="", genislik=400):
+    """Giris/kayit ekranlarinin ortak cercevesi: menusuz, ortada tek kart.
+
+    Bu ekranlar herhangi bir dukkanin verisine daha bakmadan cizilir - kimin
+    girdigi henuz bilinmiyor, dolayisiyla dukkan adi da bilinmiyor. Basliktaki
+    "Dükkan Takip" bu yuzden sabit.
+    """
     return f"""<!DOCTYPE html>
 <html lang="tr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Giriş - {dukkan}</title><style>{STIL}</style></head>
-<body><header><h1>{dukkan}</h1></header>
-<main><div class="kart" style="max-width:400px;margin:40px auto">
-<h2>Giriş</h2>{uyari}
+<title>{kacir(baslik)} - Dükkan Takip</title>
+<style>{STIL}{KAPAK_STIL}</style></head>
+<body class="kapak">
+<div class="kapak-govde" style="max-width:{genislik}px">
+<div class="marka"><div class="isaret">🏪</div>
+<h1>Dükkan Takip</h1><p>Kasa, stok ve satış tek yerde</p></div>
+<div class="kapak-kart">{icerik}</div>
+{f'<p class="kapak-alt">{alt}</p>' if alt else ''}
+</div>{SIFRE_BETIGI}</body></html>"""
+
+
+def giris_sayfasi(hata="", eposta=""):
+    """Giris ekrani. Giris yapmadan hicbir sayfa gorunmez."""
+    uyari = f'<div class="kapak-hata">{kacir(hata)}</div>' if hata else ""
+    return _kapak("Giriş", f"""
+<h2>Giriş yap</h2>
+<p class="alt-baslik">Dükkanının kayıtlarına ulaşmak için.</p>{uyari}
 <form method="post" action="/giris">
-<label>Şifre</label>
-<input type="password" name="sifre" autofocus autocomplete="current-password">
-<button style="margin-top:14px">Gir</button></form></div></main></body></html>"""
+<div class="oge"><label>Kullanıcı adı</label>
+<input type="text" name="eposta" value="{kacir(eposta)}" autofocus autocomplete="username"></div>
+<div class="oge">{sifre_alani("sifre", "Şifre", "current-password")}
+{SIFRE_GOSTER}</div>
+<button>Gir</button></form>""",
+        alt='Dükkanın burada kayıtlı değil mi? <a href="/kayit">Yeni dükkan aç</a>')
+
+
+def kayit_sayfasi(hata="", d=None):
+    """Yeni dukkan acma ekrani.
+
+    Kaydolan kisi hem dukkani kurar hem onun sahibi olur. Dukkanin verisi
+    kendi dosyasinda acilir; baska hicbir dukkanla ortak yeri yoktur.
+    """
+    d = d or {}
+    uyari = f'<div class="kapak-hata">{kacir(hata)}</div>' if hata else ""
+
+    def deger(ad):
+        return kacir(d.get(ad, [""])[0] if isinstance(d.get(ad), list) else d.get(ad, ""))
+
+    return _kapak("Yeni dükkan", f"""
+<h2>Yeni dükkan aç</h2>
+<p class="alt-baslik">Kayıtların kendi dosyasında tutulur; başka hiçbir dükkan
+onları göremez.</p>{uyari}
+<form method="post" action="/kayit">
+<div class="oge"><label>Dükkanın adı</label>
+<input type="text" name="dukkan_adi" value="{deger('dukkan_adi')}" autofocus></div>
+<div class="oge"><label>Adın soyadın</label>
+<input type="text" name="ad" value="{deger('ad')}"></div>
+<div class="oge"><label>Kullanıcı adı (girişte bunu yazacaksın)</label>
+<input type="text" name="eposta" value="{deger('eposta')}" autocomplete="username"></div>
+<div class="oge">
+{sifre_alani("sifre", f"Şifre (en az {hesaplar.EN_KISA_SIFRE} karakter)")}</div>
+<div class="oge">{sifre_alani("sifre2", "Şifre (tekrar)")}
+{SIFRE_GOSTER}</div>
+<button>Dükkanı aç</button></form>""",
+        alt='Hesabın zaten var mı? <a href="/giris">Giriş yap</a>', genislik=430)
 
 
 def kutu(etiket, deger, renk="mavi", alt="", adres="", ok=""):
@@ -566,7 +703,13 @@ def sayfa_bugun(baglanti, sorgu):
             if satir["gunluk"] > 0:
                 detay += (f" · günde ortalama {mik(satir['gunluk'])} "
                           f"{kacir(kalem['birim'])} gidiyor")
-            if satir["onerilen"] > 0:
+            if satir["parti"]:
+                # Uretilenler tam kazanla: "1 kazan üret (122 kg çıkar)".
+                p = satir["parti"]
+                detay += (f" · <b>{p['sayi']} {kacir(p['parti_ad'])} üret</b> "
+                          f"({mik(p['cikacak'], 1)} {kacir(kalem['birim'])} çıkar, "
+                          f"yaklaşık {para(satir['tutar'])})")
+            elif satir["onerilen"] > 0:
                 detay += (f" · <b>{mik(satir['onerilen'])} {kacir(kalem['birim'])} "
                           f"{satir['eylem']}</b> (yaklaşık {para(satir['tutar'])})")
             if kalem["tedarikci"]:
@@ -1068,6 +1211,16 @@ def sayfa_para(baglanti, sorgu):
         for a in son_alimlar
     ) or "<tr><td class='bos' colspan='6'>Henüz alım girilmemiş.</td></tr>"
 
+    # Karta girmeden kadronun durumu gorunsun; maasi yazilmamis ay varsa uyarsin.
+    kadro = hesap.calisanlar(baglanti)
+    yuk = hesap.aylik_maas_yuku(baglanti)
+    if not kadro:
+        calisan_ozeti = "Henüz çalışan girilmemiş"
+    else:
+        calisan_ozeti = f"{len(kadro)} kişi — aylık {para(yuk['toplam'])} maaş yükü"
+        if not hesap.maas_yazildi_mi(baglanti, tarih[:7]):
+            calisan_ozeti += " · bu ayın maaşı henüz yazılmadı"
+
     son_giderler = baglanti.execute(
         "SELECT id, tarih, aciklama, tutar FROM giderler ORDER BY id DESC LIMIT 10"
     ).fetchall()
@@ -1091,24 +1244,32 @@ def sayfa_para(baglanti, sorgu):
 <div><label>Kalem</label>{gruplu_secim("kalem_id", alim_gruplari)}</div>
 <div><label>Kaç koli / çuval</label>{sayi_alani("koli", min="0")}</div>
 <div><label>Üstüne kaç birim</label>{sayi_alani("miktar", min="0")}</div>
-<div><label>Ödenecek tutar ({kacir(PARA)})</label>{sayi_alani("tutar", min="0")}</div>
+<div><label>Ödenecek tutar ({kacir(para_birimi())})</label>{sayi_alani("tutar", min="0")}</div>
 <div><label>Ödeme</label>{secim("odeme", [("veresiye", "Veresiye (borca yazılsın)"),
                                           ("pesin", "Peşin (kasadan çıksın)")])}</div>
 </div><button>Alımı kaydet</button></form></div>
 
+<div class="kart"><h2>Çalışanlar</h2>
+<p class="bos">Kimler çalışıyor, maaşları ne kadar. Ay başında hepsinin maaşını
+tek tuşla gidere yazdırmak için burası — tek tek girmene gerek yok.</p>
+<p style="margin:12px 0 0"><a class="sablon" href="/calisanlar">
+<b>Çalışanlar sayfasını aç</b>
+{calisan_ozeti}</a></p></div>
+
 <div class="kart"><h2>Gider</h2>
-<p class="bos">Kira, elektrik, personel, yakıt gibi malzeme dışı harcamalar.</p>
+<p class="bos">Kira, elektrik, personel, yakıt gibi malzeme dışı harcamalar.
+Maaşlar için yukarıdaki Çalışanlar sayfasını kullan.</p>
 <form method="post" action="/gider"><div class="satir">
 <div>{tarih_alani(tarih)}</div>
 <div><label>Açıklama</label><input type="text" name="aciklama" placeholder="Elektrik faturası"></div>
-<div><label>Tutar ({kacir(PARA)})</label>{sayi_alani("tutar", min="0")}</div>
+<div><label>Tutar ({kacir(para_birimi())})</label>{sayi_alani("tutar", min="0")}</div>
 </div><button>Gideri kaydet</button></form></div>
 
 <div class="kart"><h2>Tedarikçiye ödeme</h2>
 <form method="post" action="/odeme"><div class="satir">
 <div>{tarih_alani(tarih)}</div>
 <div><label>Tedarikçi</label>{secim("tedarikci", borc_secenek)}</div>
-<div><label>Ödenen tutar ({kacir(PARA)})</label>{sayi_alani("tutar", min="0")}</div>
+<div><label>Ödenen tutar ({kacir(para_birimi())})</label>{sayi_alani("tutar", min="0")}</div>
 </div><button>Ödemeyi kaydet</button></form></div>
 
 <div class="kart"><h2>Kime ne kadar borçlusun</h2><table>{borc_satirlari}</table></div>
@@ -1121,6 +1282,150 @@ def sayfa_para(baglanti, sorgu):
 <div class="kart"><h2>Son giderler</h2><table>
 <tr><th>Tarih</th><th>Açıklama</th><th class='sag'>Tutar</th><th></th></tr>
 {gider_satirlari}</table></div>"""
+
+
+# ---------------------------------------------------------------- calisanlar
+
+GOREVLER = ("Dondurma ustası", "Tezgâhtar", "Kasiyer", "Bulaşıkçı",
+            "Temizlik", "Kurye", "Çırak")
+
+
+def _calisan_formu(kisi=None):
+    """Yeni calisan ve duzenleme ayni formu kullanir; fark sadece gonderilen adres."""
+    d = (lambda alan, varsayilan="": kacir(kisi[alan]) if kisi else varsayilan)
+    sayi_d = (lambda alan: f"{kisi[alan]:g}" if kisi and kisi[alan] else "")
+    gizli = (f'<input type="hidden" name="id" value="{kisi["id"]}">' if kisi else "")
+    adres = "/calisan-kaydet" if kisi else "/calisan-ekle"
+    dugme = "Değişikliği kaydet" if kisi else "Çalışanı ekle"
+    oneriler = "".join(f'<option value="{kacir(g)}">' for g in GOREVLER)
+
+    ayrilis = ""
+    if kisi:
+        ayrilis = (f'<div><label>Ayrılış tarihi</label>'
+                   f'<input type="date" name="ayrilis" value="{d("ayrilis")}">'
+                   f'<div class="bos" style="font-size:13px">Doldurursan listede '
+                   f'"ayrıldı" görünür ve maaşı bir daha yazılmaz.</div></div>')
+
+    return f"""<form method="post" action="{adres}">{gizli}
+<div class="satir">
+<div><label>Adı soyadı</label><input type="text" name="ad" value="{d('ad')}"
+ placeholder="Ahmet Yılmaz" required></div>
+<div><label>Görevi</label><input type="text" name="gorev" value="{d('gorev')}"
+ list="gorevler" placeholder="Tezgâhtar"><datalist id="gorevler">{oneriler}</datalist></div>
+<div><label>Telefon</label><input type="text" name="telefon" value="{d('telefon')}"
+ placeholder="0555 111 22 33"></div>
+</div>
+<div class="satir">
+<div><label>Eline geçen aylık maaş ({kacir(para_birimi())})</label>
+{sayi_alani("maas", sayi_d("maas"), min="0")}</div>
+<div><label>Üstüne SGK + vergi ({kacir(para_birimi())})</label>
+{sayi_alani("sgk", sayi_d("sgk"), min="0")}</div>
+<div><label>İşe giriş tarihi</label>
+<input type="date" name="baslangic" value="{d('baslangic')}"></div>
+{ayrilis}
+</div>
+<div class="satir">
+<div><label>Not</label><input type="text" name="notlar" value="{d('notlar')}"
+ placeholder="Hafta sonları geliyor"></div>
+</div>
+<button>{dugme}</button></form>"""
+
+
+def sayfa_calisanlar(baglanti, sorgu):
+    bugun = hesap.bugun()
+    duzenlenen = None
+    if sorgu.get("duzenle", [""])[0].isdigit():
+        duzenlenen = hesap.calisan(baglanti, int(sorgu["duzenle"][0]))
+
+    liste = hesap.calisanlar(baglanti, hepsi=True)
+    yuk = hesap.aylik_maas_yuku(baglanti)
+    calisan_sayisi = sum(1 for k in liste if k["aktif"])
+
+    satirlar = ""
+    for k in liste:
+        toplam = (k["maas"] or 0) + (k["sgk"] or 0)
+        if k["aktif"]:
+            durum = "<span class='yesil'>çalışıyor</span>"
+        else:
+            durum = (f"<span class='bos'>ayrıldı"
+                     f"{' · ' + kacir(gun_yaz(k['ayrilis'])) if k['ayrilis'] else ''}</span>")
+        satirlar += (
+            f"<tr><td><b>{kacir(k['ad'])}</b>"
+            f"{'<div class=bos style=font-size:13px>' + kacir(k['notlar']) + '</div>' if k['notlar'] else ''}</td>"
+            f"<td>{kacir(k['gorev'] or '—')}</td>"
+            f"<td>{kacir(k['telefon'] or '—')}</td>"
+            f"<td class='sag'>{para(k['maas'] or 0)}</td>"
+            f"<td class='sag'>{para(k['sgk'] or 0)}</td>"
+            f"<td class='sag'><b>{para(toplam)}</b></td>"
+            f"<td>{durum}</td>"
+            f"<td class='sag'><a href='/calisanlar?duzenle={k['id']}'>düzenle</a> "
+            f"{_sil_dugmesi('calisan', k['id'], '/calisanlar')}</td></tr>"
+        )
+    if not satirlar:
+        satirlar = ("<tr><td colspan='8' class='bos'>Henüz çalışan girilmemiş. "
+                    "Aşağıdaki formdan ekle.</td></tr>")
+
+    # Bu ayin maasi yazildi mi: yazildiysa dugme yerine bilgi gosterilir ki
+    # ayni ay iki kere gidere dusmesin.
+    ay = bugun[:7]
+    if hesap.maas_yazildi_mi(baglanti, ay):
+        maas_karti = ("<p class='bos'>Bu ayın maaşları <b>zaten gidere yazılmış</b>. "
+                      "Yanlışsa aşağıdaki listeden ya da Alım / Gider ekranından "
+                      "tek tek silebilirsin.</p>")
+    elif calisan_sayisi == 0:
+        maas_karti = "<p class='bos'>Önce çalışan ekle.</p>"
+    else:
+        maas_karti = f"""<p class="bos">Tek tuşla, halen çalışan {calisan_sayisi} kişinin
+her biri için ayrı bir gider satırı yazılır (net maaş + SGK). Toplam
+<b>{para(yuk['toplam'])}</b> kasadan düşer. Aynı ay ikinci kez yazılmaz.</p>
+<form method="post" action="/maas-yaz"><div class="satir">
+<div>{tarih_alani(bugun)}</div>
+</div><button>Bu ayın maaşlarını gidere yaz</button></form>"""
+
+    son_maaslar = baglanti.execute(
+        "SELECT id, tarih, aciklama, tutar FROM giderler WHERE aciklama LIKE 'Maaş - %'"
+        " ORDER BY tarih DESC, id DESC LIMIT 12"
+    ).fetchall()
+    maas_satirlari = "".join(
+        f"<tr><td>{kacir(gun_yaz(g['tarih']))}</td><td>{kacir(g['aciklama'])}</td>"
+        f"<td class='sag'>{para(g['tutar'])}</td>"
+        f"<td class='sag'>{_sil_dugmesi('gider', g['id'], '/calisanlar')}</td></tr>"
+        for g in son_maaslar
+    ) or "<tr><td colspan='4' class='bos'>Henüz maaş gideri yazılmamış.</td></tr>"
+
+    duzenleme_karti = ""
+    if duzenlenen:
+        duzenleme_karti = (f"<div class='kart'><h2>{kacir(duzenlenen['ad'])} — bilgileri "
+                           f"düzenle</h2>{_calisan_formu(duzenlenen)}"
+                           f"<p style='margin-top:12px'><a href='/calisanlar'>"
+                           f"vazgeç</a></p></div>")
+
+    return f"""
+<div class="kutular">
+{kutu("Çalışan sayısı", f"{calisan_sayisi} kişi", "mavi")}
+{kutu("Aylık maaş yükü", para(yuk['toplam']), "kirmizi",
+      alt=f"{para(yuk['net'])} net + {para(yuk['sgk'])} SGK/vergi")}
+</div>
+
+{duzenleme_karti}
+
+<div class="kart"><h2>Çalışanlar</h2>
+<p class="bos">Bu liste bir kayıt defteri — buraya yazmak tek başına kasadan para
+çıkarmaz. Maaş ancak aşağıdaki <b>"maaşları gidere yaz"</b> tuşuna basınca gider olur.</p>
+<table><tr><th>Ad</th><th>Görev</th><th>Telefon</th><th class='sag'>Net maaş</th>
+<th class='sag'>SGK/vergi</th><th class='sag'>Dükkâna maliyeti</th><th>Durum</th><th></th></tr>
+{satirlar}</table></div>
+
+<div class="kart"><h2>Bu ayın maaşları</h2>{maas_karti}</div>
+
+<div class="kart"><h2>Yeni çalışan ekle</h2>
+<p class="bos">SGK/vergi kutusunu bilmiyorsan muhasebecine sor; asgari ücretli bir
+çalışanda 2026'da net maaşın üstüne kabaca 12.000 {kacir(para_birimi())} biniyor.</p>
+{_calisan_formu()}</div>
+
+<div class="kart"><h2>Yazılmış maaş giderleri</h2>
+<table><tr><th>Tarih</th><th>Kim</th><th class='sag'>Tutar</th><th></th></tr>
+{maas_satirlari}</table></div>"""
 
 
 # ---------------------------------------------------------------- raporlar
@@ -1482,7 +1787,7 @@ kasadan ne zaman çıktığını gösterir.</p>
             f"{_donem_etiketi(kip, anahtar)} — ciro {para(donem['ciro'])},"
             f" brüt kâr {para(donem['brut'])}"))
     gidisat_grafigi = grafik.sutun_grafigi(
-        noktalar, grafik.kisa_para(tavan, PARA),
+        noktalar, grafik.kisa_para(tavan, para_birimi()),
         f"{liste_basligi}: ciro sütunları, eskiden yeniye.",
         "Koyu sütun şu an baktığın dönem. Sütuna tıklayınca o dönemin raporu açılır.")
 
@@ -1622,8 +1927,15 @@ senin bir şey yapman gerekmiyor.</p></div>""" + OZEL_GUN_KARTI
             durum = (f"<span class='yesil'>elde yeterli var "
                      f"({mik(oneri['elde'], 1)} {kacir(oneri['kalem']['birim'])})</span>")
         else:
-            durum = (f"<b>{mik(oneri['parti'], 1)} {kacir(oneri['parti_ad'])} üret</b> "
-                     f"({mik(oneri['acik'], 1)} {kacir(oneri['kalem']['birim'])} açık)")
+            birim = kacir(oneri["kalem"]["birim"])
+            # Tam kazan cirpildigi icin cikan miktar acigi asabiliyor; artan
+            # yaziliyor ki dukkan bilerek fazla uretti gorsun.
+            artan = (f", {mik(oneri['artacak'], 1)} {birim} artar"
+                     if oneri["artacak"] > 0.05 else "")
+            durum = (f"<b>{oneri['parti']} {kacir(oneri['parti_ad'])} üret</b> "
+                     f"<div class='bos' style='font-size:13px'>"
+                     f"{mik(oneri['acik'], 1)} {birim} açık → "
+                     f"{mik(oneri['cikacak'], 1)} {birim} çıkar{artan}</div>")
         uretim_html += (
             f"<tr><td>{kacir(oneri['kalem']['ad'])}</td>"
             f"<td class='sag'>{mik(oneri['gereken'], 1)} {kacir(oneri['kalem']['birim'])}</td>"
@@ -1857,9 +2169,9 @@ birim maliyeti {para(hesap.birim_maliyet(baglanti, kalem_id))}</p>
 {kutucuk("aktif", kalem["aktif"], "Kullanımda")}
 </div>
 <div class="satir">
-<div><label>Alış fiyatı (bir {kacir(kalem['birim'])} için, {kacir(PARA)})</label>
+<div><label>Alış fiyatı (bir {kacir(kalem['birim'])} için, {kacir(para_birimi())})</label>
      {sayi_alani("birim_fiyat", f"{kalem['birim_fiyat']:.2f}", min="0")}</div>
-<div><label>Satış fiyatı (bir {kacir(kalem['birim'])} için, {kacir(PARA)})</label>
+<div><label>Satış fiyatı (bir {kacir(kalem['birim'])} için, {kacir(para_birimi())})</label>
      {sayi_alani("fiyat", f"{kalem['fiyat']:.2f}", min="0")}</div>
 <div><label>Kritik seviye (altına düşünce uyarır)</label>
      {sayi_alani("kritik_seviye", mik(kalem['kritik_seviye']), min="0")}</div>
@@ -2011,10 +2323,10 @@ Kalem listesi, reçeteler ve satış şekilleri</a></p></div>
 <div><label>Satış nasıl girilsin</label>
      {secim("satis_girisi", modlar, ayar(baglanti, "satis_girisi", "ikisi"))}</div>
 </div><div class="satir">
-<div><label>Tedarikçi kaç günde bir geliyor</label>
-     {sayi_alani("tedarik_gun", kacir(ayar(baglanti, "tedarik_gun")), min="0")}</div>
-<div><label>Kaç günlük yedek dursun</label>
-     {sayi_alani("emniyet_gun", kacir(ayar(baglanti, "emniyet_gun")), min="0")}</div>
+<div><label>Kaç günlük kalınca uyarayım</label>
+     {sayi_alani("uyari_gun", kacir(ayar(baglanti, "uyari_gun", "2")), min="0")}</div>
+<div><label>Alırken kaç günlük alınsın</label>
+     {sayi_alani("dolum_gun", kacir(ayar(baglanti, "dolum_gun", "7")), min="1")}</div>
 <div><label>Günlük tüketim kaç günün ortalaması olsun</label>
      {sayi_alani("ortalama_gun", kacir(ayar(baglanti, "ortalama_gun")), min="1")}</div>
 </div><button>Ayarları kaydet</button></form></div>
@@ -2034,42 +2346,45 @@ kendiliğinden güncellenir. Bir kalemin diğer ayarları için
 
 
 def _guvenlik_karti(baglanti):
-    """Ayarlar sayfasindaki giris sifresi bolumu."""
-    if guvenlik.ortamdan_mi():
-        return """
-<div class="kart"><h2>Güvenlik</h2>
-<div class="uyari yakin"><b>Şifre sunucudan geliyor</b>
-<div class="detay">Bu kopya internete açık bir sunucuda çalışıyor ve şifresi
-oraya kurulumda verilmiş. Buradan değiştirilemez; değiştirmek için sunucudaki
-ayarı güncellemek gerekir.</div></div></div>"""
+    """Ayarlar sayfasindaki hesap bolumu."""
+    kisi = getattr(_istek, "kullanici", None)
 
-    if guvenlik.sifre_var_mi(baglanti):
-        return """
-<div class="kart"><h2>Güvenlik</h2>
-<div class="uyari yakin"><b>Giriş şifresi açık</b>
-<div class="detay">Programı açan herkesten önce şifre isteniyor. Şifreyi
-değiştirirsen açık kalmış bütün oturumlar kapanır — telefonunda açık
-duruyorsa oradan da yeniden giriş istenir.</div></div>
+    if kisi:
+        ad = kacir(kisi["ad"] or kisi["eposta"])
+        return f"""
+<div class="kart"><h2>Hesabın</h2>
+<div class="uyari yakin"><b>{ad} olarak girdin</b>
+<div class="detay">Kullanıcı adın: <b>{kacir(kisi["eposta"])}</b> &nbsp;·&nbsp;
+Dükkanın: <b>{kacir(kisi["dukkan_adi"])}</b><br>
+Bu dükkanın kayıtları kendi dosyasında tutulur; başka hiçbir dükkan onları
+göremez, sen de başka dükkanınkini göremezsin.</div></div>
 <form method="post" action="/sifre-kur"><div class="satir">
-<div><label>Yeni şifre</label>
-<input type="password" name="sifre" autocomplete="new-password"></div>
+<div>{sifre_alani("sifre", f"Yeni şifre (en az {hesaplar.EN_KISA_SIFRE} karakter)")}
+{SIFRE_GOSTER}</div>
 </div><button class="ikincil">Şifreyi değiştir</button></form>
-<form method="post" action="/sifre-kaldir" style="margin-top:10px">
-<button class="sil">Şifreyi kaldır</button></form>
-<p class="bos" style="margin-top:10px">Şifreyi kaldırırsan program yine
-doğrudan açılır. Sadece dükkânda, kendi wifi'inde kullanıyorsan sakıncası
-yok; internete açıksa kaldırma.</p></div>"""
+<p class="bos" style="margin-top:10px">Şifreni değiştirince başka bir cihazda
+açık kalmış oturumlar etkilenmez; oradan çıkmak için o cihazda Çıkış'a bas.</p>
+</div>"""
 
     return f"""
 <div class="kart"><h2>Güvenlik</h2>
-<p class="bos">Şu an şifre yok: programı açan herkes doğrudan giriyor.
+<p class="bos">Şu an giriş yok: programı açan herkes doğrudan giriyor.
 <b>Dükkân içinde, kendi wifi'inde çalışırken bunun sakıncası yok</b> — dışarıdan
 kimse o ağda değil. Ama programı internete açarsan adresi bilen herkes kasayı,
-ciroyu ve tedarikçileri görür ve değiştirebilir. O durumda şifre şart.</p>
-<form method="post" action="/sifre-kur"><div class="satir">
-<div><label>Şifre koy (en az {guvenlik.EN_KISA_SIFRE} karakter)</label>
-<input type="password" name="sifre" autocomplete="new-password"></div>
-</div><button>Şifreyi kur</button></form></div>"""
+ciroyu ve tedarikçileri görür ve değiştirebilir. O durumda hesap şart.</p>
+<p class="bos">Aşağıdan hesap kurarsan <b>bu dükkanın şu anki bütün kayıtları
+olduğu gibi kalır</b>, sadece önüne giriş ekranı gelir.</p>
+<form method="post" action="/hesap-kur">
+<div class="satir">
+<div><label>Kullanıcı adı</label>
+<input type="text" name="eposta" autocomplete="username"></div>
+<div><label>Adın soyadın</label><input type="text" name="ad"></div>
+</div>
+<div class="satir">
+<div>{sifre_alani("sifre", f"Şifre (en az {hesaplar.EN_KISA_SIFRE} karakter)")}</div>
+<div>{sifre_alani("sifre2", "Şifre (tekrar)")}</div>
+</div>{SIFRE_GOSTER}
+<button style="margin-top:12px">Hesabı kur ve girişi aç</button></form></div>"""
 
 
 def _hava_ayar_karti(baglanti):
@@ -2246,6 +2561,48 @@ def islem_gider(baglanti, veri):
     hesap.gider_ekle(baglanti, veri.get("tarih", [hesap.bugun()])[0],
                      veri.get("aciklama", [""])[0], sayi(veri.get("tutar", ["0"])[0]))
     return "/para", "Gider kaydedildi."
+
+
+def islem_calisan_ekle(baglanti, veri):
+    ad = veri.get("ad", [""])[0].strip()
+    if not ad:
+        return "/calisanlar", "!Çalışanın adı yazılmamış."
+    hesap.calisan_ekle(
+        baglanti, ad,
+        gorev=veri.get("gorev", [""])[0],
+        telefon=veri.get("telefon", [""])[0],
+        maas=sayi(veri.get("maas", ["0"])[0]),
+        sgk=sayi(veri.get("sgk", ["0"])[0]),
+        baslangic=veri.get("baslangic", [""])[0],
+        notlar=veri.get("notlar", [""])[0],
+    )
+    return "/calisanlar", f"{ad} listeye eklendi."
+
+
+def islem_calisan_kaydet(baglanti, veri):
+    calisan_id = int(sayi(veri.get("id", ["0"])[0]))
+    ad = veri.get("ad", [""])[0].strip()
+    if not calisan_id or not ad:
+        return "/calisanlar", "!Kayıt bulunamadı."
+    hesap.calisan_kaydet(
+        baglanti, calisan_id, ad=ad,
+        gorev=veri.get("gorev", [""])[0].strip(),
+        telefon=veri.get("telefon", [""])[0].strip(),
+        maas=sayi(veri.get("maas", ["0"])[0]),
+        sgk=sayi(veri.get("sgk", ["0"])[0]),
+        baslangic=veri.get("baslangic", [""])[0].strip(),
+        ayrilis=veri.get("ayrilis", [""])[0].strip(),
+        notlar=veri.get("notlar", [""])[0].strip(),
+    )
+    return "/calisanlar", f"{ad} güncellendi."
+
+
+def islem_maas_yaz(baglanti, veri):
+    tarih = veri.get("tarih", [hesap.bugun()])[0]
+    adet, toplam = hesap.maas_yaz(baglanti, tarih)
+    if not adet:
+        return "/calisanlar", "!Maaş yazılmadı: bu ay zaten yazılmış ya da maaşı olan çalışan yok."
+    return "/calisanlar", f"{adet} kişinin maaşı gidere yazıldı ({para(toplam)})."
 
 
 def islem_odeme(baglanti, veri):
@@ -2465,8 +2822,8 @@ def islem_ozel_gun_sil(baglanti, veri):
 
 
 def islem_ayarlar(baglanti, veri):
-    for anahtar in ("dukkan_adi", "para_birimi", "satis_girisi", "tedarik_gun",
-                    "emniyet_gun", "ortalama_gun"):
+    for anahtar in ("dukkan_adi", "para_birimi", "satis_girisi", "uyari_gun",
+                    "dolum_gun", "ortalama_gun"):
         if anahtar in veri:
             ayar_yaz(baglanti, anahtar, veri[anahtar][0])
 
@@ -2492,6 +2849,7 @@ SAYFALAR = {
     "/uretim": ("Üretim", sayfa_uretim),
     "/stok": ("Stok", sayfa_stok),
     "/para": ("Alım / Gider", sayfa_para),
+    "/calisanlar": ("Çalışanlar", sayfa_calisanlar),
     "/ozet": ("Raporlar", sayfa_ozet),
     "/kalemler": ("Ürün & Malzeme", sayfa_kalemler),
     "/kalem": ("Kalem", sayfa_kalem),
@@ -2511,6 +2869,9 @@ ISLEMLER = {
     "/uretim": islem_uretim,
     "/alim": islem_alim,
     "/gider": islem_gider,
+    "/calisan-ekle": islem_calisan_ekle,
+    "/calisan-kaydet": islem_calisan_kaydet,
+    "/maas-yaz": islem_maas_yaz,
     "/odeme": islem_odeme,
     "/stok-duzelt": islem_stok_duzelt,
     "/kalem-ekle": islem_kalem_ekle,
@@ -2577,55 +2938,124 @@ class Sunucu(BaseHTTPRequestHandler):
         """Sunucu bir vekilin arkasindaysa https'i ancak bu basliktan anlar."""
         return self.headers.get("X-Forwarded-Proto", "").lower() == "https"
 
-    def _girisli_mi(self, baglanti):
-        return guvenlik.girisli_mi(baglanti, self.headers.get("Cookie"))
+    def _oturum(self, defter):
+        """Istegi yapan kisiyi ve hangi dukkanin dosyasinin acilacagini bulur.
 
-    def _sifre_islemi(self, baglanti, yol, veri):
-        """Sifre kurma/kaldirma. Ikisi de acik oturumlarin hepsini kapatir."""
-        if guvenlik.ortamdan_mi():
-            self._yonlendir("/ayarlar", "Şifre sunucudan geliyor, buradan değişmez.")
+        (kisi, dukkan_id) doner. dukkan_id 0 ise giris gerekiyor demektir.
+
+        Defterde hic hesap yoksa program dukkan icindeki gibi dogrudan acilir
+        ve dukkan 1 kullanilir. Ama bu ASLA sunucuda yapilmaz: orada adresi
+        bilen herkes girerdi. Sunucuda defter bossa once dukkan acilir.
+        """
+        if not SUNUCUDA and not hesaplar.kullanici_var_mi(defter):
+            return None, 1
+        kullanici_id = guvenlik.oturum_kullanicisi(defter, self.headers.get("Cookie"))
+        if not kullanici_id:
+            return None, 0
+        kisi = hesaplar.kullanici(defter, kullanici_id)
+        return kisi, kisi["dukkan_id"]
+
+    def _giris_ekrani(self, defter):
+        """Girmemis birine gosterilecek ekran.
+
+        Defter bombosken giris ekrani anlamsizdir - girilecek hesap yok.
+        Onun yerine dogrudan dukkan acma ekrani gosterilir.
+        """
+        if not hesaplar.kullanici_var_mi(defter):
+            self._gonder(kayit_sayfasi())
+        else:
+            self._gonder(giris_sayfasi(), 401)
+
+    def _oturum_ac(self, defter, kullanici_id, adres="/"):
+        """Cerezi yazip ic sayfaya yollar."""
+        self._yonlendir(adres, "", guvenlik.cerez_yaz(
+            guvenlik.cerez_uret(defter, kullanici_id), self._https_mi()))
+
+    def _kayit_islemi(self, defter, veri):
+        """Yeni dukkan acar: deftere kaydi, sonra kendi veri dosyasini."""
+        def d(ad):
+            return veri.get(ad, [""])[0]
+
+        hata = hesaplar.kayit_denetle(defter, d("eposta"), d("sifre"),
+                                      d("sifre2"), d("dukkan_adi"))
+        if hata:
+            self._gonder(kayit_sayfasi(hata, veri), 400)
             return
 
-        if yol == "/sifre-kaldir":
-            guvenlik.sifre_kaldir(baglanti)
-            self._yonlendir("/ayarlar", "Şifre kaldırıldı.",
-                            guvenlik.cerez_sil(self._https_mi()))
+        kullanici_id, dukkan_id = hesaplar.kayit_ol(
+            defter, d("dukkan_adi"), d("eposta"), d("ad"), d("sifre"))
+        # Yeni dukkanin kendi veri dosyasi burada, bos olarak kurulur.
+        yeni = veritabani.hazirla(dukkan_id)
+        try:
+            ayar_yaz(yeni, "dukkan_adi", d("dukkan_adi").strip())
+            yeni.commit()
+        finally:
+            yeni.close()
+        self._oturum_ac(defter, kullanici_id)
+
+    def _hesap_kur(self, defter, dukkan_id, veri):
+        """Girisi olmayan bir kuruluma ilk hesabi ekler.
+
+        Dukkanin su anki butun kayitlari oldugu gibi kalir; sadece onune
+        giris ekrani gelir. Ayarlar sayfasindan cagrilir.
+        """
+        def d(ad):
+            return veri.get(ad, [""])[0]
+
+        hata = hesaplar.kayit_denetle(defter, d("eposta"), d("sifre"), d("sifre2"))
+        if hata:
+            self._yonlendir("/ayarlar", "!" + hata)
             return
 
-        sorun = guvenlik.sifre_kur(baglanti, veri.get("sifre", [""])[0])
-        if sorun:
-            self._yonlendir("/ayarlar", sorun)
+        baglanti = veritabani.baglan(dukkan_id)
+        try:
+            ad = ayar(baglanti, "dukkan_adi", "Dükkanım")
+        finally:
+            baglanti.close()
+        hesaplar.dukkan_saglama(defter, dukkan_id, ad)
+        kullanici_id = hesaplar.kullanici_ekle(
+            defter, dukkan_id, d("eposta"), d("ad"), d("sifre"))
+        self._oturum_ac(defter, kullanici_id, "/ayarlar")
+
+    def _sifre_islemi(self, defter, kisi, veri):
+        """Girmis kisinin kendi sifresini degistirmesi."""
+        if not kisi:
+            self._yonlendir("/ayarlar", "!Şifre değiştirmek için önce giriş yapmalısın.")
             return
-        # Sifre degisince butun oturumlar kapanir. Degistiren kisinin kendi
-        # tarayicisi yeniden giris yapmak zorunda kalmasin diye taze cerez.
-        self._yonlendir("/ayarlar", "Şifre kaydedildi.",
-                        guvenlik.cerez_yaz(guvenlik.cerez_uret(baglanti),
-                                           self._https_mi()))
+        sorun = hesaplar.sifre_degistir(defter, kisi["id"], veri.get("sifre", [""])[0])
+        self._yonlendir("/ayarlar", ("!" + sorun) if sorun else "Şifre değiştirildi.")
 
     def do_GET(self):
-        global PARA
         parca = urllib.parse.urlparse(self.path)
         if parca.path == "/favicon.ico":
             self.send_response(204)
             self.end_headers()
             return
 
-        baglanti = veritabani.baglan()
+        defter = hesaplar.baglan()
         try:
-            PARA = ayar(baglanti, "para_birimi", "TL")
-
-            # Sifre kuruluysa giris yapmadan hicbir sayfa acilmaz. Sifre yoksa
-            # girisli_mi zaten dogru doner; dukkan ici kullanim degismez.
-            girisli = self._girisli_mi(baglanti)
-            if parca.path == "/giris":
-                if girisli:
-                    self._yonlendir("/")
+            kisi, dukkan_id = self._oturum(defter)
+            # Giris ve kayit ekranlari hicbir dukkanin verisine bakmadan
+            # cizilir - kimin geldigi henuz bilinmiyor.
+            if not dukkan_id:
+                if parca.path == "/kayit":
+                    self._gonder(kayit_sayfasi())
                 else:
-                    self._gonder(giris_sayfasi(baglanti))
+                    self._giris_ekrani(defter)
                 return
-            if not girisli:
-                self._gonder(giris_sayfasi(baglanti), 401)
+            if parca.path in ("/giris", "/kayit"):
+                self._yonlendir("/")
                 return
+        except Exception as hata:
+            self._hata_sayfasi(hata)
+            return
+        finally:
+            defter.close()
+
+        _istek.kullanici = kisi
+        baglanti = veritabani.baglan(dukkan_id)
+        try:
+            _istek.para = ayar(baglanti, "para_birimi", "TL")
 
             sayfa_bilgi = SAYFALAR.get(parca.path)
             if not sayfa_bilgi:
@@ -2647,7 +3077,6 @@ class Sunucu(BaseHTTPRequestHandler):
             baglanti.close()
 
     def do_POST(self):
-        global PARA
         parca = urllib.parse.urlparse(self.path)
         # Govde her durumda okunur; okunmadan cevap verilirse tarayici bir
         # sonraki istekte yarim kalmis veriyle karsilasir.
@@ -2655,33 +3084,62 @@ class Sunucu(BaseHTTPRequestHandler):
         veri = urllib.parse.parse_qs(
             self.rfile.read(uzunluk).decode("utf-8"), keep_blank_values=True
         )
-        baglanti = veritabani.baglan()
-        try:
-            PARA = ayar(baglanti, "para_birimi", "TL")
 
-            if parca.path == "/giris":
-                if guvenlik.sifre_dogru_mu(baglanti, veri.get("sifre", [""])[0]):
-                    self._yonlendir("/", "", guvenlik.cerez_yaz(
-                        guvenlik.cerez_uret(baglanti), self._https_mi()))
-                else:
-                    # Yanlis sifreyi bir saniye bekletmek, sirayla sifre deneyen
-                    # bir programi pratikte kullanissiz hale getirir.
-                    time.sleep(1)
-                    self._gonder(giris_sayfasi(baglanti, "Şifre yanlış."), 401)
-                return
+        defter = hesaplar.baglan()
+        try:
+            kisi, dukkan_id = self._oturum(defter)
 
             if parca.path == "/cikis":
                 self._yonlendir("/giris", "", guvenlik.cerez_sil(self._https_mi()))
                 return
 
-            if not self._girisli_mi(baglanti):
-                self._gonder(giris_sayfasi(baglanti), 401)
+            if parca.path == "/giris":
+                if dukkan_id:
+                    self._yonlendir("/")
+                    return
+                girdi = hesaplar.dogrula(defter, veri.get("eposta", [""])[0],
+                                         veri.get("sifre", [""])[0])
+                if girdi:
+                    self._oturum_ac(defter, girdi["id"])
+                else:
+                    # Yanlis sifreyi bir saniye bekletmek, sirayla sifre deneyen
+                    # bir programi pratikte kullanissiz hale getirir.
+                    time.sleep(1)
+                    self._gonder(giris_sayfasi("Kullanıcı adı ya da şifre yanlış.",
+                                               veri.get("eposta", [""])[0]), 401)
                 return
 
-            # Sifre islemleri cerez de yazdigi icin ISLEMLER'den gecmez.
-            if parca.path in ("/sifre-kur", "/sifre-kaldir"):
-                self._sifre_islemi(baglanti, parca.path, veri)
+            if parca.path == "/kayit":
+                if dukkan_id:
+                    self._yonlendir("/")
+                else:
+                    self._kayit_islemi(defter, veri)
                 return
+
+            if not dukkan_id:
+                self._giris_ekrani(defter)
+                return
+
+            # Hesap islemleri cerez de yazdigi icin ISLEMLER'den gecmez.
+            if parca.path == "/hesap-kur":
+                if kisi:
+                    self._yonlendir("/ayarlar", "!Zaten giriş yapmışsın.")
+                else:
+                    self._hesap_kur(defter, dukkan_id, veri)
+                return
+            if parca.path == "/sifre-kur":
+                self._sifre_islemi(defter, kisi, veri)
+                return
+        except Exception as hata:
+            self._hata_sayfasi(hata)
+            return
+        finally:
+            defter.close()
+
+        _istek.kullanici = kisi
+        baglanti = veritabani.baglan(dukkan_id)
+        try:
+            _istek.para = ayar(baglanti, "para_birimi", "TL")
 
             islem = ISLEMLER.get(parca.path)
             if not islem:
@@ -2697,21 +3155,40 @@ class Sunucu(BaseHTTPRequestHandler):
         self._yonlendir(adres, mesaj)
 
 
+def _dukkan_kimlikleri():
+    """Havasi tazelenecek dukkanlarin listesi.
+
+    Defterde kayitli dukkanlar; defter bossa dukkan icindeki kurulumdur ve
+    tek dukkan vardir.
+    """
+    defter = hesaplar.baglan()
+    try:
+        return hesaplar.dukkan_kimlikleri(defter) or [1]
+    finally:
+        defter.close()
+
+
 def hava_bekcisi():
     """Havayi arka planda tazeler; ekran ciziminde asla ag beklenmez.
 
     Acilista bir kere, sonra uc saatte bir dener. Internet yoksa sessizce
     bekler - program cevrimdisi calismaya devam eder.
+
+    Her dukkanin sehri ayri oldugu icin liste her turda bastan okunur; arada
+    acilan yeni bir dukkan da boylece kendiliginden sıraya girer.
     """
     while True:
-        baglanti = veritabani.baglan()
-        try:
-            if hava.sehir_secili_mi(baglanti):
-                hava.guncelle(baglanti)
-        except Exception:
-            traceback.print_exc()
-        finally:
-            baglanti.close()
+        for dukkan_id in _dukkan_kimlikleri():
+            if not os.path.exists(veritabani.db_yolu(dukkan_id)):
+                continue
+            baglanti = veritabani.baglan(dukkan_id)
+            try:
+                if hava.sehir_secili_mi(baglanti):
+                    hava.guncelle(baglanti)
+            except Exception:
+                traceback.print_exc()
+            finally:
+                baglanti.close()
         time.sleep(3 * 60 * 60)
 
 
@@ -2725,9 +3202,19 @@ def yerel_ip():
 
 
 def calistir():
-    baglanti = veritabani.hazirla()
-    baslik = ayar(baglanti, "dukkan_adi", "Dükkanım")
-    baglanti.close()
+    # Once dukkan/kullanici defteri, sonra dukkan 1'in verisi. Sunucuda
+    # defter bos kalabilir - orada ilk giren kendi dukkanini acar.
+    defter = hesaplar.hazirla()
+    try:
+        dolu = hesaplar.kullanici_var_mi(defter)
+    finally:
+        defter.close()
+
+    baslik = "Dükkan Takip"
+    if not (SUNUCUDA and dolu):
+        baglanti = veritabani.hazirla(1)
+        baslik = ayar(baglanti, "dukkan_adi", "Dükkanım")
+        baglanti.close()
 
     threading.Thread(target=hava_bekcisi, daemon=True).start()
 
@@ -2737,7 +3224,7 @@ def calistir():
     print("=" * 56)
     if SUNUCUDA:
         print(f"  Sunucu kipinde, {PORT} portu dinleniyor.")
-        print(f"  Veritabani: {veritabani.DB_YOLU}")
+        print(f"  Veri klasoru: {veritabani.DUKKAN_KLASORU}")
         print("=" * 56)
     else:
         print(f"  Bu bilgisayardan : http://localhost:{PORT}")

@@ -12,10 +12,12 @@ Dukkanin calisma sekli (2026 Agustos'ta sahibinden alindi):
     degil, giden kilodan hesaplaniyor.
   - Gun sonunda rafta kalan ambalaj ve her kazanda kalan kilo yaziliyor;
     ne satildigini program aradaki farktan buluyor.
-  - Yaz ortasinda sicak, normal bir hafta ici gunu 150 kg dondurma gidiyor.
+  - Normal bir gunde 30 kg, yogun bir gunde 60 kg dondurma gidiyor.
     Ambalaj birbirine su oranda: 2200 kulah, 500 kap, 50 kagit helva.
-  - Hafta sonu hafta icinin 1,5 kati. Yagmurlu gunde satis ucte bir duser.
-    Sezon basi ve sonu yaz ortasindan cok farkli degil.
+  - Hafta sonu hafta icinin 2 kati (yogun gun budur). Yagmurlu gunde satis
+    ucte bir duser. Sezon basi ve sonu yaz ortasindan cok farkli degil.
+  - Kadro calisanlar tablosunda: usta + iki tezgahtar, biri sezonluk.
+    Maas gideri o tablodan uretilir, betikte sabit degildir.
 
 Uydurma olmayan bir sey daha var: hava. Ordu'nun o gunlerdeki gercek olcumleri
 Open-Meteo arsivinden cekiliyor, gunluk talep de ona bagli hesaplaniyor.
@@ -80,8 +82,9 @@ HELVA_ORANI = {K_HELVA: 50 * 0.60, B_HELVA: 50 * 0.40}
 KILO_PAYI = 0.08
 
 # Yaz ortasinda sicak, normal bir hafta ici gunu dukkandan cikan dondurma.
-# Butun gunluk hesap bunun uzerine kurulu.
-GUNLUK_KG = 150.0
+# Butun gunluk hesap bunun uzerine kurulu. Yogun gunler (hafta sonu) asagidaki
+# HAFTA carpaniyla bunun iki kati olur: normal gun 30 kg, yogun gun 60 kg.
+GUNLUK_KG = 30.0
 
 # Gunluk satilan dondurmanin bu kadari sade (dukkan sahibi soyledi). Sadenin
 # agirligi asagidaki listeden degil bu paydan hesaplaniyor; cesit eklenip
@@ -211,8 +214,9 @@ def havayi_yaz(baglanti, gunluk):
 # Dukkan sahibi "sezon basi ve sonu yaz ortasindan cok farkli degil" dedi;
 # bu yuzden mevsim egrisi neredeyse duz, sadece iki ucta hafif bir inis var.
 MEVSIM = [(0, 0.96), (15, 1.00), (90, 1.00), (98, 0.96)]
-# Hafta ici gunler esit, cumartesi-pazar 1,5 kati.
-HAFTA = [1.0, 1.0, 1.0, 1.0, 1.0, 1.5, 1.5]          # Pzt..Paz
+# Hafta ici gunler esit, cumartesi-pazar 2 kati: 30 kg'lik normal gunun
+# karsiligi 60 kg'lik yogun gun.
+HAFTA = [1.0, 1.0, 1.0, 1.0, 1.0, 2.0, 2.0]          # Pzt..Paz
 
 
 def mevsim_carpani(gun_no):
@@ -243,7 +247,8 @@ def gunun_talebi(baglanti, tarih, gun_no, sicaklik, yagis):
     """O gun dukkandan cikacak toplam dondurma, kilo olarak.
 
     Cikis noktasi dukkanin kendi olcusu: yaz ortasinda sicak, normal bir hafta
-    ici gunu 150 kg. Geri kalani bunun uzerine binen carpanlar.
+    ici gunu 30 kg, yogun bir gun (hafta sonu) 60 kg. Geri kalani bunun
+    uzerine binen carpanlar.
     """
     kg = GUNLUK_KG * mevsim_carpani(gun_no) * HAFTA[tarih.weekday()]
     # Sicaklik etkisi bilerek yumusak: sezon basi ile yaz ortasi arasinda buyuk
@@ -400,34 +405,87 @@ def gun_sonu(baglanti, tarih, cesitler, gunluk_kg, ambalaj, pet_su):
     return giden
 
 
+# ---------------------------------------------------------------- calisanlar
+# Maaslar artik burada sabit degil: calisanlar tablosuna yaziliyor, gider de
+# oradan uretiliyor. Boylece "kac kisi calisiyor, kimin maasi ne" sorusunun
+# cevabi programin kendi ekraninda duruyor ve degistirilebiliyor.
+#
+# Rakamlar 2026 asgari ucretine oturuyor: net 28.075 TL, isverene maliyeti
+# ~40.200 TL (yani net ucretin ustune kabaca 12.100 TL SGK + vergi biniyor).
+CALISANLAR = [
+    # (ad, gorev, telefon, net maas, SGK+vergi, ise giris, ayrilis, not)
+    ("Metin Aydın", "Dondurma ustası", "0532 418 77 21",
+     45000, 15300, "2026-05-15", "", "Kazanları o çekiyor, sabah 6'da geliyor"),
+    ("Serkan Duran", "Tezgâhtar", "0537 260 14 08",
+     28100, 12150, "2026-05-15", "", ""),
+    ("Elif Korkmaz", "Tezgâhtar", "0505 733 96 42",
+     28100, 12150, "2026-06-01", "", "Sezonluk — okul açılınca ayrılacak"),
+]
+
+
+def calisanlari_kur(baglanti):
+    """Sezonun calisan kadrosunu yazar. Zaten varsa dokunmaz."""
+    if baglanti.execute("SELECT COUNT(*) FROM calisanlar").fetchone()[0]:
+        return
+    for ad, gorev, telefon, maas, sgk, giris, ayrilis, notlar in CALISANLAR:
+        yeni = hesap.calisan_ekle(baglanti, ad, gorev, telefon, maas, sgk,
+                                  giris, notlar)
+        if ayrilis:
+            hesap.calisan_kaydet(baglanti, yeni, ayrilis=ayrilis)
+
+
 # ---------------------------------------------------------------- gider / odeme / banka
-def giderleri_yaz(baglanti, tarih, gun_no):
+def _ayin_cirosu(baglanti, tarih):
+    """Icinde bulunulan ayin o gune kadarki cirosu - POS komisyonu buna bagli."""
+    return baglanti.execute(
+        "SELECT COALESCE(SUM(tutar), 0) FROM satislar WHERE substr(tarih, 1, 7) = ?",
+        (tarih.strftime("%Y-%m"),),
+    ).fetchone()[0]
+
+
+def giderleri_yaz(baglanti, tarih, gun_no, aylik_ciro):
+    """Bir gunun sabit ve degisken giderleri.
+
+    Maas disindaki kalemler dukkanin buyuklugune gore secildi: 40 m2 dolayinda
+    bir dondurmaci, uc derin dondurucu ve iki dolapla yazin ciddi elektrik
+    yakiyor. POS komisyonu ciroya bagli oldugu icin ayni gun hesaplaniyor.
+    """
     gun, tarih_metni = tarih.day, tarih.isoformat()
-    zam = 1 + 0.0016 * gun_no
     if gun == 1 and tarih.month > 5:
         hesap.gider_ekle(baglanti, tarih_metni, "Dükkân kirası",
-                         30000 + 1000 * (tarih.month - 6))
+                         32000 + 1500 * (tarih.month - 6))
+    # Maas: kadro calisanlar tablosundan okunur, herkes icin ayri satir duser.
     if gun == 5 and tarih.month > 5:
-        hesap.gider_ekle(baglanti, tarih_metni, "Personel maaşı (2 kişi)",
-                         round(64000 * zam, -2))
+        hesap.maas_yaz(baglanti, tarih_metni)
     if gun == 20:
+        # Dondurucular yazin gece gunduz calisiyor; agustos faturasi en agiri.
         hesap.gider_ekle(baglanti, tarih_metni, "Elektrik faturası",
-                         round(random.uniform(9000, 17000), -2))
+                         round(random.uniform(17000, 27000), -2))
         hesap.gider_ekle(baglanti, tarih_metni, "Su faturası",
-                         round(random.uniform(900, 1600), -1))
+                         round(random.uniform(1100, 2000), -1))
     if gun == 10:
-        hesap.gider_ekle(baglanti, tarih_metni, "İnternet ve telefon", 890)
+        hesap.gider_ekle(baglanti, tarih_metni, "İnternet ve telefon", 1150)
     if gun == 25:
-        hesap.gider_ekle(baglanti, tarih_metni, "Muhasebeci", 4500)
+        hesap.gider_ekle(baglanti, tarih_metni, "Muhasebeci", 6500)
+        # Cironun kabaca ucte ikisi kartla; komisyon o tutarin %1,8'i kadar.
+        komisyon = aylik_ciro * 0.66 * 0.018
+        if komisyon > 0:
+            hesap.gider_ekle(baglanti, tarih_metni, "Kredi kartı / POS komisyonu",
+                             round(komisyon, -1))
+    # Gecici vergi ve stopaj ucer aylik donemlerde odeniyor.
+    if gun == 17 and tarih.month in (5, 8):
+        hesap.gider_ekle(baglanti, tarih_metni, "Vergi ve resmî ödemeler",
+                         round(random.uniform(48000, 72000), -2))
     if tarih.weekday() == 0:
         hesap.gider_ekle(baglanti, tarih_metni, "Temizlik malzemesi",
-                         round(random.uniform(700, 1800), -1))
+                         round(random.uniform(900, 2100), -1))
     if random.random() < 0.10:
         hesap.gider_ekle(baglanti, tarih_metni, "Nakliye / yakıt",
-                         round(random.uniform(600, 2200), -1))
-    if random.random() < 0.04:
+                         round(random.uniform(700, 2500), -1))
+    if random.random() < 0.05:
+        # Dondurucu ariza, kazan bakimi, tamirat.
         hesap.gider_ekle(baglanti, tarih_metni, "Tamir - bakım",
-                         round(random.uniform(1500, 9000), -2))
+                         round(random.uniform(2000, 12000), -2))
 
 
 def odemeleri_yap(baglanti, tarih):
@@ -462,7 +520,7 @@ def bankaya_yatir(baglanti, tarih):
 # ve ayarlar duruyor: onlar dukkanin kurulumu, gunluk hareket degil.
 TEMIZLENECEK = ("satislar", "sayim_satirlari", "sayimlar", "uretimler",
                 "alimlar", "giderler", "odemeler", "stok_hareketleri",
-                "kasa_hareketleri", "borc_hareketleri")
+                "kasa_hareketleri", "borc_hareketleri", "calisanlar")
 
 
 def eskiyi_temizle(baglanti):
@@ -522,12 +580,16 @@ def hazirlik(baglanti, cesitler):
     baglanti.commit()
 
 
+DUKKAN = 1   # betik hangi dukkanin dosyasina yazsin
+
+
 def yedek_al():
     """Uzerine yazmadan once veritabanini kopyalar."""
     damga = datetime.datetime.now().strftime("%Y%m%d-%H%M")
-    yedek = os.path.join(os.path.dirname(veritabani.DB_YOLU),
+    kaynak = veritabani.db_yolu(DUKKAN)
+    yedek = os.path.join(veritabani.VERI_KLASORU,
                          f"yedek-{damga}-simulasyon-oncesi.db")
-    shutil.copy2(veritabani.DB_YOLU, yedek)
+    shutil.copy2(kaynak, yedek)
     return yedek
 
 
@@ -540,9 +602,10 @@ def main():
         return
     print("yedek alindi:", yedek_al())
 
-    baglanti = veritabani.baglan()
+    baglanti = veritabani.baglan(DUKKAN)
     eskiyi_temizle(baglanti)
     yapiyi_kur(baglanti)
+    calisanlari_kur(baglanti)
     gunluk_hava = havayi_yaz(baglanti, havayi_getir())
     cesitler = cesitleri_kur(baglanti)
     hazirlik(baglanti, cesitler)
@@ -568,7 +631,7 @@ def main():
         alimlari_kontrol_et(baglanti, anahtar, gun_no, cesitler, gunluk_kg, ihtiyac)
         uretim_yap(baglanti, anahtar, cesitler, gunluk_kg)
         gun_sonu(baglanti, anahtar, cesitler, gunluk_kg, ambalaj, pet_su)
-        giderleri_yaz(baglanti, tarih, gun_no)
+        giderleri_yaz(baglanti, tarih, gun_no, _ayin_cirosu(baglanti, tarih))
         odemeleri_yap(baglanti, tarih)
         bankaya_yatir(baglanti, tarih)
 

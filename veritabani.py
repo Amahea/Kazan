@@ -39,8 +39,20 @@ KLASOR = os.path.dirname(os.path.abspath(__file__))
 # sifirdan kurulur; veritabani orada kalirsa her guncellemede butun kayitlar
 # silinir. KAZAN_VERI ile kalici diskteki klasor gosterilir.
 VERI_KLASORU = os.environ.get("KAZAN_VERI") or KLASOR
-DB_YOLU = os.path.join(VERI_KLASORU, "veri.db")
+
+# Her dukkanin verisi KENDI dosyasindadir: dukkanlar/dukkan-1.db, dukkan-2.db...
+# Iki dukkanin kaydi ayni dosyada hic bulunmadigi icin, koddaki bir hata
+# yuzunden birinin otekinin cirosunu gormesi mumkun degildir. Kimin hangi
+# dukkana girebilecegi hesaplar.py'deki ayri defterde tutulur.
+DUKKAN_KLASORU = os.path.join(VERI_KLASORU, "dukkanlar")
+
+# Tek dukkanli surumlerden kalan dosyalar. Ilk acilista dukkan 1'e tasinirlar.
+TEK_DB_YOLU = os.path.join(VERI_KLASORU, "veri.db")
 ESKI_DB_YOLU = os.path.join(VERI_KLASORU, "dondurma.db")
+
+
+def db_yolu(dukkan_id):
+    return os.path.join(DUKKAN_KLASORU, f"dukkan-{int(dukkan_id)}.db")
 
 SEMA = """
 CREATE TABLE IF NOT EXISTS kalemler (
@@ -169,6 +181,27 @@ CREATE TABLE IF NOT EXISTS odemeler (
     kayit_zamani TEXT NOT NULL
 );
 
+-- Dukkanda calisanlar. Bu tablo bir kayit defteri; kendi basina para
+-- hareketi dogurmaz. Maas ancak "maaslari gidere yaz" dendiginde giderler
+-- tablosuna dusen normal bir gider satiri olur - boylece bir ay iki kere
+-- yazilmaz, silinen maas da kasadan kendiliginden geri doner.
+CREATE TABLE IF NOT EXISTS calisanlar (
+    id        INTEGER PRIMARY KEY,
+    ad        TEXT NOT NULL,
+    gorev     TEXT NOT NULL DEFAULT '',
+    telefon   TEXT NOT NULL DEFAULT '',
+    -- Calisanin eline gecen aylik net ucret.
+    maas      REAL NOT NULL DEFAULT 0,
+    -- Ustune isverenin odedigi SGK + vergi payi. Ikisinin toplami dukkana
+    -- aylik gercek maliyettir; gidere de bu toplam yazilir.
+    sgk       REAL NOT NULL DEFAULT 0,
+    baslangic TEXT NOT NULL DEFAULT '',   -- ise giris
+    ayrilis   TEXT NOT NULL DEFAULT '',   -- bos ise hala calisiyor
+    notlar    TEXT NOT NULL DEFAULT '',
+    aktif     INTEGER NOT NULL DEFAULT 1,
+    sira      INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS stok_hareketleri (
     id         INTEGER PRIMARY KEY,
     tarih      TEXT NOT NULL,
@@ -252,8 +285,8 @@ VARSAYILAN_AYARLAR = {
     # 'dogrudan' : satislar tek tek / toplu olarak elle girilir
     # 'ikisi'    : iki ekran da menude durur
     "satis_girisi": "ikisi",
-    "tedarik_gun": "3",       # tedarikci kac gunde bir geliyor
-    "emniyet_gun": "2",       # elde kac gunluk yedek dursun
+    "uyari_gun": "2",         # kac gunluk kalinca "Yapman gerekenler"e dussun
+    "dolum_gun": "7",         # alim/uretim onerisi kac gunluk olsun
     "ortalama_gun": "14",     # gunluk tuketim kac gunun ortalamasindan hesaplansin
     "kurulum_bitti": "0",
     # Hava ve tahmin. Sehir secilmeden hicbir aga cikilmaz; program tamamen
@@ -270,8 +303,14 @@ VARSAYILAN_AYARLAR = {
 
 # ---------------------------------------------------------------- yardimcilar
 
-def baglan():
-    baglanti = sqlite3.connect(DB_YOLU)
+def baglan(dukkan_id=1):
+    """Bir dukkanin veri dosyasini acar.
+
+    Programin geri kalani bu baglantiyi parametre olarak alir ve hangi
+    dukkanda oldugunu hic bilmez. Cok dukkanli calismanin butun sirri
+    burada: dogru dosyayi acmak yeterli, sorgularin hicbiri degismez.
+    """
+    baglanti = sqlite3.connect(db_yolu(dukkan_id))
     baglanti.row_factory = sqlite3.Row
     baglanti.execute("PRAGMA foreign_keys = ON")
     return baglanti
@@ -830,20 +869,36 @@ def _bos_ad(baglanti, ad):
 
 # ---------------------------------------------------------------- kurulum
 
-def hazirla():
-    """Veritabanini acar; gerekiyorsa olusturur ya da eski surumden gocurur."""
-    os.makedirs(VERI_KLASORU, exist_ok=True)
-    if not os.path.exists(DB_YOLU) and os.path.exists(ESKI_DB_YOLU):
-        os.rename(ESKI_DB_YOLU, DB_YOLU)
+def _tek_dukkandan_gocur():
+    """Tek dukkanli surumden kalan dosyayi dukkan 1'in yerine tasir.
 
-    baglanti = baglan()
+    Sadece dukkan 1'in dosyasi henuz yokken calisir, yani bir kere. Kopya
+    degil tasima: iki ayri dosyada iki ayri kayit birikmesin.
+    """
+    os.makedirs(DUKKAN_KLASORU, exist_ok=True)
+    birinci = db_yolu(1)
+    if os.path.exists(birinci):
+        return
+    for eski in (TEK_DB_YOLU, ESKI_DB_YOLU):
+        if os.path.exists(eski):
+            os.rename(eski, birinci)
+            print(f"  {os.path.basename(eski)} -> {os.path.basename(birinci)} tasindi.")
+            return
+
+
+def hazirla(dukkan_id=1):
+    """Bir dukkanin veritabanini acar; gerekiyorsa olusturur ya da gocurur."""
+    os.makedirs(VERI_KLASORU, exist_ok=True)
+    _tek_dukkandan_gocur()
+
+    baglanti = baglan(dukkan_id)
     if _eski_surum_mu(baglanti):
         baglanti.close()
         yedek = os.path.join(
             VERI_KLASORU, f"yedek-{datetime.datetime.now():%Y%m%d-%H%M%S}.db"
         )
-        shutil.copy2(DB_YOLU, yedek)
-        baglanti = baglan()
+        shutil.copy2(db_yolu(dukkan_id), yedek)
+        baglanti = baglan(dukkan_id)
         _goc(baglanti)
         print(f"  Veriler yeni duzene tasindi. Eski surumun yedegi: {os.path.basename(yedek)}")
 
@@ -870,4 +925,4 @@ if __name__ == "__main__":
     for tablo in ("kalemler", "receteler", "recete_satirlari", "satislar", "uretimler"):
         adet = baglanti.execute(f"SELECT COUNT(*) FROM {tablo}").fetchone()[0]
         print(f"{tablo}: {adet} kayit")
-    print(f"\nVeritabani hazir: {DB_YOLU}")
+    print(f"\nVeritabani hazir: {db_yolu(1)}")

@@ -129,6 +129,34 @@ def recete_satirlari(baglanti, recete_id):
     ).fetchall()
 
 
+def parti_onerisi(baglanti, kalem_id, acik):
+    """Acik miktari TAM partiye yuvarlar: yarim kazan cirpilmaz.
+
+    Bir kazan (ya da tepsi, firin, tencere) ya bastan asagi calisir ya hic;
+    "0,3 kazan uret" diye bir sey yok. Bu yuzden acik ne kadar kucuk olursa
+    olsun oneri en az 1 partidir, ustu de her zaman yukari yuvarlanir.
+
+    Doner: {'sayi', 'verim', 'cikacak', 'artacak', 'parti_ad'} ya da None.
+    'cikacak' o kadar partiden cikan miktar, 'artacak' ise acigi kapattiktan
+    sonra elde kalan fazla - dukkan "bir kazan cirpsam ne kadar artar"
+    sorusunu ekranda gorebilsin diye.
+    """
+    recete = ana_recete(baglanti, kalem_id)
+    if recete is None or recete["verim"] <= 0 or acik <= 0:
+        return None
+    # EPSILON, 2,0000001 gibi kayan nokta artiklarinin bir parti fazla
+    # onermesini engelliyor.
+    adet = max(1, math.ceil(acik / recete["verim"] - EPSILON))
+    cikacak = adet * recete["verim"]
+    return {
+        "sayi": adet,
+        "verim": recete["verim"],
+        "cikacak": cikacak,
+        "artacak": cikacak - acik,
+        "parti_ad": recete["parti_ad"] or "parti",
+    }
+
+
 def recete_maliyeti(baglanti, recete_id, _zincir=()):
     """Recetenin bir uretiminin (verim kadar cikan) malzeme maliyeti."""
     return sum(
@@ -397,6 +425,118 @@ def odeme_ekle(baglanti, tarih, tedarikci, tutar):
     return odeme_id
 
 
+# ---------------------------------------------------------------- calisanlar
+
+# Calisan kaydi tek basina para hareketi dogurmaz; sadece "bu ayin maasi kac
+# tuttu" sorusunun cevabini hazir tutar. Para ancak maas_yaz cagrildiginda
+# normal bir gider satiri olarak duser, boylece silinmesi de digerleri gibi
+# calisir.
+
+def calisanlar(baglanti, hepsi=False):
+    """Calisan listesi. Varsayilan olarak sadece halen calisanlar."""
+    kosul = "" if hepsi else " WHERE aktif = 1"
+    return baglanti.execute(
+        f"SELECT * FROM calisanlar{kosul} ORDER BY aktif DESC, sira, id"
+    ).fetchall()
+
+
+def calisan(baglanti, calisan_id):
+    return baglanti.execute(
+        "SELECT * FROM calisanlar WHERE id = ?", (calisan_id,)
+    ).fetchone()
+
+
+def calisan_ekle(baglanti, ad, gorev="", telefon="", maas=0.0, sgk=0.0,
+                 baslangic="", notlar=""):
+    if not ad.strip():
+        return None
+    sira = baglanti.execute(
+        "SELECT COALESCE(MAX(sira), 0) + 1 FROM calisanlar"
+    ).fetchone()[0]
+    yeni = baglanti.execute(
+        "INSERT INTO calisanlar (ad, gorev, telefon, maas, sgk, baslangic, notlar,"
+        " aktif, sira) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)",
+        (ad.strip(), gorev.strip(), telefon.strip(), max(0.0, maas), max(0.0, sgk),
+         baslangic.strip(), notlar.strip(), sira),
+    ).lastrowid
+    baglanti.commit()
+    return yeni
+
+
+def calisan_kaydet(baglanti, calisan_id, **alanlar):
+    """Verilen alanlari gunceller. Ayrilis tarihi yazilirsa calisan pasife duser."""
+    izinli = ("ad", "gorev", "telefon", "maas", "sgk", "baslangic", "ayrilis", "notlar")
+    yazilacak = {ad: deger for ad, deger in alanlar.items() if ad in izinli}
+    if not yazilacak:
+        return False
+    # Ayrilan biri listede "halen calisiyor" gorunmesin; tarih silinirse geri doner.
+    if "ayrilis" in yazilacak:
+        yazilacak["aktif"] = 0 if str(yazilacak["ayrilis"]).strip() else 1
+    kolonlar = ", ".join(f"{ad} = ?" for ad in yazilacak)
+    baglanti.execute(
+        f"UPDATE calisanlar SET {kolonlar} WHERE id = ?",
+        (*yazilacak.values(), calisan_id),
+    )
+    baglanti.commit()
+    return True
+
+
+def calisan_sil(baglanti, calisan_id):
+    baglanti.execute("DELETE FROM calisanlar WHERE id = ?", (calisan_id,))
+    baglanti.commit()
+    return True
+
+
+def aylik_maas_yuku(baglanti):
+    """Halen calisanlarin dukkana aylik toplam maliyeti (net maas + SGK payi)."""
+    net, sgk = baglanti.execute(
+        "SELECT COALESCE(SUM(maas), 0), COALESCE(SUM(sgk), 0)"
+        " FROM calisanlar WHERE aktif = 1"
+    ).fetchone()
+    return {"net": net, "sgk": sgk, "toplam": net + sgk}
+
+
+def maas_yazildi_mi(baglanti, ay):
+    """O ay (YYYY-MM) icin maas gideri daha once yazilmis mi."""
+    return baglanti.execute(
+        "SELECT COUNT(*) FROM giderler WHERE aciklama LIKE 'Maaş - %'"
+        " AND substr(tarih, 1, 7) = ?", (ay,)
+    ).fetchone()[0] > 0
+
+
+def _o_ay_calisti_mi(kisi, ay):
+    """Kisi (YYYY-MM) ayinda dukkanda miydi.
+
+    Ise girisi aydan sonraysa ya da ayrilisi aydan onceyse maasi yazilmaz;
+    boylece sezonluk calisan gecmise donuk raporlarda da dogru cikar.
+    """
+    if kisi["baslangic"] and kisi["baslangic"][:7] > ay:
+        return False
+    if kisi["ayrilis"]:
+        return kisi["ayrilis"][:7] >= ay
+    return bool(kisi["aktif"])
+
+
+def maas_yaz(baglanti, tarih):
+    """O gunun tarihiyle, o ay calisan herkes icin birer maas gideri yazar.
+
+    Her calisan ayri satir olur; boylece biri yanlissa tek basina silinebilir
+    ve rapordaki gider dokumunde kimin maasi oldugu gorunur.
+    """
+    ay = tarih[:7]
+    if maas_yazildi_mi(baglanti, ay):
+        return 0, 0.0
+    adet, toplam = 0, 0.0
+    for kisi in calisanlar(baglanti, hepsi=True):
+        tutar = (kisi["maas"] or 0) + (kisi["sgk"] or 0)
+        if tutar <= 0 or not _o_ay_calisti_mi(kisi, ay):
+            continue
+        gider_ekle(baglanti, tarih, f"Maaş - {kisi['ad']}", tutar)
+        adet += 1
+        toplam += tutar
+    return adet, toplam
+
+
 def sayim_duzelt(baglanti, tarih, kalem_id, gercek_miktar, aciklama="Sayım düzeltmesi"):
     """Elle sayim sonucu: fark kadar hareket yazar, stok gercege esitlenir."""
     fark = gercek_miktar - stoklar(baglanti).get(kalem_id, 0.0)
@@ -566,6 +706,7 @@ _SILINEBILIR = {
     "alim": "alimlar",
     "gider": "giderler",
     "odeme": "odemeler",
+    "calisan": "calisanlar",
 }
 
 
@@ -666,12 +807,19 @@ def gunluk_tuketim(baglanti, kalem_id, gun_sayisi):
 def oneriler(baglanti):
     """'Sut bitmek uzere, 104 litre al' tarzi uyarilari uretir.
 
+    Listeye sadece ACIL olanlar girer: stogu bitenler ve elindekiyle
+    'uyari_gun' gunden fazla idare etmeyecekler. Boylece ana menudeki
+    "Yapman gerekenler" bugun ilgilenilmesi gereken birkac satir olur.
+
+    Onerilen miktar ise daha comert: 'dolum_gun' gunluk. Yani bir kere alim
+    yapinca raf bir haftalik dolar, ertesi gun ayni kalem tekrar listeye
+    dusmez.
+
     Onem sirasi: once bitenler, sonra bitmek uzere olanlar.
     """
     ortalama_gun = int(sayi(ayar(baglanti, "ortalama_gun", "14"), 14))
-    tedarik_gun = sayi(ayar(baglanti, "tedarik_gun", "3"), 3)
-    emniyet_gun = sayi(ayar(baglanti, "emniyet_gun", "2"), 2)
-    hedef_gun = tedarik_gun + emniyet_gun
+    uyari_gun = sayi(ayar(baglanti, "uyari_gun", "2"), 2)
+    dolum_gun = max(sayi(ayar(baglanti, "dolum_gun", "7"), 7), uyari_gun)
 
     liste = []
     for satir in kalem_listesi(baglanti):
@@ -681,15 +829,25 @@ def oneriler(baglanti):
         stok = satir["stok"]
         kalan_gun = stok / gunluk if gunluk > 0 else None
 
-        kritik = satir["kritik_seviye"] > 0 and stok <= satir["kritik_seviye"]
-        acil = kalan_gun is not None and kalan_gun <= hedef_gun
-        if not kritik and not acil:
+        if stok <= 0:
+            pass                                   # bitti: her halukarda uyar
+        elif kalan_gun is not None:
+            if kalan_gun > uyari_gun:              # daha vakit var, sessiz kal
+                continue
+        elif not (satir["kritik_seviye"] > 0 and stok <= satir["kritik_seviye"]):
+            # Tuketimi bilinmeyen kalemde tek olcut elle yazilan kritik seviye.
             continue
 
-        gerekli = gunluk * hedef_gun - stok
+        gerekli = gunluk * dolum_gun - stok
         if gunluk <= 0:
             gerekli = max(satir["kritik_seviye"] * 2 - stok, 0)
         onerilen = math.ceil(max(gerekli, 0))
+
+        # Uretilen kalemde oneri kiloyla degil tam kazanla verilir; yarim
+        # kazan cirpilmadigi icin "40 kg uret" degil "1 kazan uret" denir.
+        parti = None
+        if not satir["alinir"] and satir["uretilir"]:
+            parti = parti_onerisi(baglanti, satir["id"], onerilen)
 
         liste.append({
             "kalem": satir,
@@ -697,10 +855,11 @@ def oneriler(baglanti):
             "gunluk": gunluk,
             "kalan_gun": kalan_gun,
             "onerilen": onerilen,
-            "tutar": onerilen * satir["maliyet"],
+            "parti": parti,
+            "tutar": (parti["cikacak"] if parti else onerilen) * satir["maliyet"],
             "eylem": "al" if satir["alinir"] else "üret",
             "seviye": "bitti" if stok <= 0 else (
-                "acil" if (kalan_gun or 99) <= tedarik_gun else "yakin"),
+                "acil" if (kalan_gun or 99) <= uyari_gun else "yakin"),
         })
 
     sirala = {"bitti": 0, "acil": 1, "yakin": 2}

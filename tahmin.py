@@ -298,16 +298,18 @@ def uretim_onerisi(baglanti, gun_tahminleri):
         if kalem is None:
             continue
         elde = stok.get(kalem_id, 0.0)
-        acik = gereken - elde
-        recete = hesap.ana_recete(baglanti, kalem_id)
+        acik = max(gereken - elde, 0.0)
+        # Uretim tam kazanla yapiliyor; yarim/ceyrek parti onerilmez.
+        parti = hesap.parti_onerisi(baglanti, kalem_id, acik)
         oneriler.append({
             "kalem": kalem,
             "gereken": gereken,
             "elde": elde,
-            "acik": max(acik, 0.0),
-            "parti": (acik / recete["verim"]) if (recete and recete["verim"] > 0
-                                                  and acik > 0) else 0.0,
-            "parti_ad": recete["parti_ad"] if recete else "parti",
+            "acik": acik,
+            "parti": parti["sayi"] if parti else 0,
+            "parti_ad": parti["parti_ad"] if parti else "parti",
+            "cikacak": parti["cikacak"] if parti else 0.0,
+            "artacak": parti["artacak"] if parti else 0.0,
         })
     return oneriler
 
