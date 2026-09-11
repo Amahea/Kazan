@@ -87,7 +87,10 @@ CREATE TABLE IF NOT EXISTS kalemler (
     -- satislarina paylastirilsin mi.
     dagit         INTEGER NOT NULL DEFAULT 0,
     sira          INTEGER NOT NULL DEFAULT 0,
-    aktif         INTEGER NOT NULL DEFAULT 1
+    aktif         INTEGER NOT NULL DEFAULT 1,
+    -- 1: kalemi menu gecisi kapatti (kis menusunde kavunlu gibi). Menu
+    -- degisince yalnizca bunlar geri acilir; elle kapatilan kapali kalir.
+    mevsim_disi   INTEGER NOT NULL DEFAULT 0
 );
 
 -- Bir kalemin birden fazla recetesi olabilir: dondurma ayni stoga girer ama
@@ -276,6 +279,34 @@ CREATE INDEX IF NOT EXISTS ix_stok_kaynak  ON stok_hareketleri (kaynak_tur, kayn
 CREATE INDEX IF NOT EXISTS ix_satis_tarih  ON satislar (tarih);
 CREATE INDEX IF NOT EXISTS ix_uretim_tarih ON uretimler (tarih);
 CREATE INDEX IF NOT EXISTS ix_recete_urun  ON receteler (urun_id);
+
+-- Menu donemleri: "Yaz menusu", "Kis menusu". Bir menu, o donemde satilan
+-- urunlerin listesidir. Hicbir menude olmayan urun her zaman satilir (kulah,
+-- pet su); bir menude olan urun ancak o menu gecerliyken acik kalir.
+-- kosul/esik gecis onerisi icindir: 'soguk' menu hava esigin altina inince,
+-- 'sicak' menu ustune cikinca onerilir. Bos kosul "sadece elle gecerim".
+CREATE TABLE IF NOT EXISTS menuler (
+    id    INTEGER PRIMARY KEY,
+    ad    TEXT NOT NULL UNIQUE,
+    kosul TEXT NOT NULL DEFAULT '',
+    esik  REAL NOT NULL DEFAULT 0,
+    sira  INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS menu_kalemleri (
+    menu_id  INTEGER NOT NULL REFERENCES menuler(id) ON DELETE CASCADE,
+    kalem_id INTEGER NOT NULL REFERENCES kalemler(id) ON DELETE CASCADE,
+    PRIMARY KEY (menu_id, kalem_id)
+);
+
+-- Hangi gun hangi menuye gecildi. Gecerli menu en son satirdir; gecmis de
+-- durur ki "gecen yil kisa ne zaman gecmistik" sorusu cevaplanabilsin.
+CREATE TABLE IF NOT EXISTS menu_gecisleri (
+    id           INTEGER PRIMARY KEY,
+    tarih        TEXT NOT NULL,
+    menu_id      INTEGER NOT NULL REFERENCES menuler(id) ON DELETE CASCADE,
+    kayit_zamani TEXT NOT NULL DEFAULT ''
+);
 """
 
 VARSAYILAN_AYARLAR = {
@@ -349,7 +380,8 @@ def ayar_yaz(baglanti, anahtar, deger):
 # Yeni surumlerde eklenen kolonlar. Mevcut veritabanlari acilirken tamamlanir;
 # CREATE TABLE IF NOT EXISTS eski tabloya kolon eklemez.
 SONRADAN_EKLENENLER = {
-    "kalemler": {"tur": "TEXT NOT NULL DEFAULT ''"},
+    "kalemler": {"tur": "TEXT NOT NULL DEFAULT ''",
+                 "mevsim_disi": "INTEGER NOT NULL DEFAULT 0"},
     "hava": {"yagis_ihtimal": "REAL"},
 }
 

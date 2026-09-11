@@ -26,6 +26,7 @@ import guvenlik
 import hava
 import hesap
 import hesaplar
+import menuler
 import tahmin as tahmin_modulu
 import takvim
 import veritabani
@@ -346,6 +347,8 @@ button.mini { background:none; color:#33475b; padding:4px 8px; font-weight:400; 
 .uyari.bitti { background:#fde8e6; border-color:#c1392b; }
 .uyari.acil  { background:#fff1de; border-color:#e07b00; }
 .uyari.yakin { background:#eef4fa; border-color:#5b8db8; }
+.uyari.mevsim { background:#eef7f1; border-color:#2f8f5b; }
+.uyari.mevsim .detay { margin-top:5px; }
 .uyari b { font-size:16px; }
 .uyari .detay { font-size:14px; color:#4a5b6e; margin-top:3px; }
 .bos { color:#6b7c8f; font-size:15px; }
@@ -374,7 +377,7 @@ MENU = [
     ("/stok", "Stok", "📦", ()),
     ("/para", "Alım / Gider", "💰", ("/calisanlar",)),
     ("/ozet", "Raporlar", "📊", ("/tahmin", "/ozel-gunler")),
-    ("/ayarlar", "Ayarlar", "⚙️", ("/kalemler", "/kalem")),
+    ("/ayarlar", "Ayarlar", "⚙️", ("/kalemler", "/kalem", "/menuler")),
 ]
 
 
@@ -466,7 +469,9 @@ def yan_panel(baglanti):
              f'<p class="bos" style="margin-top:10px">'
              f'<a href="/tahmin">Tahmin sayfasını aç</a></p></div>')
 
-    acik_olanlar = [oneri for oneri in uretimler if oneri["acik"] > 0][:5]
+    uretme = menuler.uretilmeyecekler(menuler.oneri(baglanti))
+    acik_olanlar = [oneri for oneri in uretimler
+                    if oneri["acik"] > 0 and oneri["kalem"]["id"] not in uretme][:5]
     if acik_olanlar:
         satirlar = "".join(
             f'<div class="yan-satir"><div>{kacir(oneri["kalem"]["ad"])}'
@@ -631,6 +636,8 @@ def rozetler(kalem):
         yazi += '<span class="rozet sat">satılır</span>'
     if not kalem["takip"]:
         yazi += '<span class="rozet">stok tutulmaz</span>'
+    if "mevsim_disi" in kalem.keys() and kalem["mevsim_disi"]:
+        yazi += '<span class="rozet">mevsim dışı</span>'
     return yazi or '<span class="rozet">rolsüz</span>'
 
 
@@ -687,9 +694,15 @@ def sayfa_bugun(baglanti, sorgu):
         kutular += kutu(f'Hazır {kalem["ad"]}',
                         f'{mik(kalem["stok"], 1)} {kacir(kalem["birim"])}', "mavi", alt)
 
-    liste = hesap.oneriler(baglanti)
-    if liste:
-        uyarilar = ""
+    plan = menuler.oneri(baglanti)
+    # Gecis yaklasirken kapanacak cesit icin "1 kazan uret" demek, gecisten
+    # sonra dolapta satilamayacak dondurma biriktirmek olur.
+    uretme = menuler.uretilmeyecekler(plan)
+    liste = [satir for satir in hesap.oneriler(baglanti)
+             if not (satir["parti"] and satir["kalem"]["id"] in uretme)]
+    gecis_uyarisi = _gecis_ozeti(plan) if plan else ""
+    if liste or gecis_uyarisi:
+        uyarilar = gecis_uyarisi
         for satir in liste:
             kalem = satir["kalem"]
             if satir["seviye"] == "bitti":
@@ -2087,6 +2100,294 @@ bir şeyse her yıl <u>aynı</u> etiketi yaz — "Fındık Toplama 2026" değil,
 </div>"""
 
 
+# ---------------------------------------------------------------- menuler
+
+def _gun_adi(tarih, bugun=None):
+    """Tarihi yakinliga gore soyler: 'bugün', 'yarın', 'Cumartesi'."""
+    bugun = bugun or datetime.date.today()
+    fark = (tarih - bugun).days
+    if fark <= 0:
+        return "bugün"
+    if fark == 1:
+        return "yarın"
+    return tahmin_modulu.GUN_ADLARI[tarih.weekday()]
+
+
+def _gecis_simgesi(menu):
+    return "❄️" if menu["kosul"] == "soguk" else "☀️" if menu["kosul"] == "sicak" else "🔁"
+
+
+def _gecis_nedeni(plan):
+    """'Cumartesi 14°, Pazar 15°, Pazartesi 13° — üç gün üst üste 17°C'nin altında'"""
+    menu = plan["menu"]
+    gunler = ", ".join(f"{tahmin_modulu.GUN_ADLARI[tarih.weekday()]} {derece:.0f}°"
+                       for tarih, derece in plan["dizi"])
+    yon = "altında" if menu["kosul"] == "soguk" else "üstünde"
+    return (f"{gunler} — {len(plan['dizi'])} gün üst üste en yüksek sıcaklık "
+            f"{mik(menu['esik'], 1)}°C'nin {yon}.")
+
+
+def _gecis_dugmeleri(plan, plan_baglantisi=True):
+    menu = plan["menu"]
+    return (f'<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">'
+            f'<form method="post" action="/menu-gec"><input type="hidden" name="id" '
+            f'value="{menu["id"]}"><button>Şimdi geç</button></form>'
+            + (f'<a class="ok-dugme" href="/menuler">Planın tamamı</a>' if plan_baglantisi else "")
+            + f'<form method="post" action="/menu-ertele"><input type="hidden" name="id" '
+            f'value="{menu["id"]}"><button class="ikincil">Şimdi değil</button></form></div>')
+
+
+def _gecis_ozeti(plan):
+    """Ana menudeki kisa gecis uyarisi."""
+    menu = plan["menu"]
+    ne_zaman = _gun_adi(plan["tarih"])
+    satirlar = [f'<div class="detay">Neden: {kacir(_gecis_nedeni(plan))}</div>']
+    uretilen = [k for k in plan["kapananlar"] if k["uretme"] and k["elde"] > 0]
+    if uretilen:
+        satirlar.append(
+            f'<div class="detay"><b>Kapanacak çeşitlerden yeni üretim yapma.</b> Elde '
+            + ", ".join(f"{kacir(k['kalem']['ad'])} {mik(k['elde'], 1)} {kacir(k['kalem']['birim'])}"
+                        for k in sorted(uretilen, key=lambda k: -k["elde"])[:4])
+            + (f" ve {len(uretilen) - 4} çeşit daha" if len(uretilen) > 4 else "") + " var.</div>")
+    if plan["alinacaklar"]:
+        satirlar.append('<div class="detay">Almadan geçme: '
+                        + ", ".join(kacir(a["kalem"]["ad"]) for a in plan["alinacaklar"])
+                        + "</div>")
+    sayilar = (f'{len(plan["kapananlar"])} ürün kapanacak, '
+               f'{len(plan["acilanlar"])} ürün açılacak.')
+    return (f'<div class="uyari mevsim"><b>{_gecis_simgesi(menu)} Menü geçişi önerisi: '
+            f'{kacir(menu["ad"])} — {kacir(ne_zaman)}</b><div class="detay">{sayilar}</div>'
+            f'{"".join(satirlar)}{_gecis_dugmeleri(plan)}</div>')
+
+
+def _gecis_plani_karti(plan):
+    """Menuler sayfasindaki tam plan."""
+    menu = plan["menu"]
+    ne_zaman = _gun_adi(plan["tarih"])
+    ek = "" if ne_zaman in ("bugün", "yarın") else f" ({gun_yaz(plan['tarih'].isoformat(), False)})"
+
+    kapanan_satirlar = ""
+    for k in sorted(plan["kapananlar"], key=lambda k: -k["elde"]):
+        kalem = k["kalem"]
+        birim = kacir(kalem["birim"])
+        biter = "—"
+        if k["biter"] is not None and k["elde"] > 0:
+            biter = f"{mik(k['biter'], 1)} gün"
+        gecmis = "—"
+        if k["gecmis_gun"] >= menuler.EN_AZ_GECMIS:
+            gecmis = (f"{mik(k['gecmis_ort'], 2)} {birim} "
+                      f"<span class='bos' style='font-size:13px'>(normalde "
+                      f"{mik(k['genel_ort'], 2)}, {k['gecmis_gun']} gün)</span>")
+        kapanan_satirlar += (
+            f"<tr><td>{kacir(kalem['ad'])}"
+            + (" <span class='rozet'>üretme</span>" if k["uretme"] and k["elde"] > 0 else "")
+            + f"</td><td class='sag'>{mik(k['elde'], 1) + ' ' + birim if kalem['takip'] else '—'}</td>"
+            f"<td class='sag'>{mik(k['gunluk'], 2)} {birim}</td><td class='sag'>{biter}</td>"
+            f"<td class='sag'>{gecmis}</td></tr>")
+    artacak = [k for k in plan["kapananlar"] if k["artacak"] > 0.05]
+    artacak_notu = ""
+    if artacak and plan["kalan_gun"] > 0:
+        artacak_notu = (
+            f'<p class="bos" style="margin-top:8px">Bugünkü satış hızıyla {plan["kalan_gun"]} '
+            f'günde bitmeyecekler: ' + ", ".join(
+                f"{kacir(k['kalem']['ad'])} (~{mik(k['artacak'], 1)} {kacir(k['kalem']['birim'])})"
+                for k in sorted(artacak, key=lambda k: -k["artacak"])[:6])
+            + ". Geçişten sonra da satılabilirler; ürün kapanınca stoğu silinmez.</p>")
+
+    acilan = "".join(
+        f"<tr><td>{kacir(a['kalem']['ad'])}</td><td class='sag'>"
+        + (f"{mik(a['gunluk'], 1)} {kacir(a['kalem']['birim'])}" if a["gunluk"]
+           else "<span class='bos'>ilk kez açılıyor</span>") + "</td></tr>"
+        for a in plan["acilanlar"])
+
+    alinacak = "".join(
+        f"<tr><td>{kacir(a['kalem']['ad'])}</td>"
+        + (f"<td class='sag'>{mik(a['elde'], 2)}</td><td class='sag'><b>{mik(a['eksik'], 2)} "
+           f"{kacir(a['kalem']['birim'])}</b></td>" if a["eksik"] is not None else
+           "<td class='sag'>0</td><td class='sag'><b>stokta yok</b></td>")
+        + f"<td>{kacir(a['kalem']['tedarikci'])}</td></tr>"
+        for a in plan["alinacaklar"])
+
+    fiyat = "".join(
+        f"<li><b>{kacir(u['kalem']['ad'])}</b> son {menuler.FIYAT_GUN} günde "
+        f"{para(u['eski'])} → {para(u['yeni'])} (%{u['artis'] * 100:.0f} arttı) · "
+        f"{kacir(', '.join(u['urunler']))}</li>"
+        for u in plan["fiyat_uyarilari"])
+
+    return f"""
+<div class="kart tam"><h2>{_gecis_simgesi(menu)} Menü geçişi önerisi: {kacir(menu['ad'])}
+— {kacir(ne_zaman)}{kacir(ek)}</h2>
+<p><b>Neden:</b> {kacir(_gecis_nedeni(plan))}</p>
+<p class="bos">Kararı sen verirsin. Geçince kapanan ürünler satış ve üretim
+ekranlarından kalkar; geçmiş kayıtları ve stokları silinmez.</p>
+{_gecis_dugmeleri(plan, plan_baglantisi=False)}
+<h3>Kapanacak ürünler ({len(plan['kapananlar'])})</h3>
+<div style="overflow-x:auto"><table>
+<tr><th>Ürün</th><th class='sag'>Elde</th><th class='sag'>Son 14 gün, günde</th>
+<th class='sag'>Bitmesi</th><th class='sag'>Geçmişte bu havada, günde</th></tr>
+{kapanan_satirlar or "<tr><td class='bos' colspan='5'>Kapanacak ürün yok.</td></tr>"}
+</table></div>{artacak_notu}
+<h3>Açılacak ürünler ({len(plan['acilanlar'])})</h3>
+<table><tr><th>Ürün</th><th class='sag'>Geçen sefer günde</th></tr>
+{acilan or "<tr><td class='bos' colspan='2'>Açılacak ürün yok.</td></tr>"}</table>
+<h3>Almadan geçme</h3>
+<p class="bos">Açılacak ürünlerin ilk {menuler.ILK_HAFTA} günü için. Geçen sefer satışı olan
+ürünlerde miktar o satıştan hesaplanır; ilk kez açılanda sadece stokta olmayan malzeme söylenir.</p>
+<table><tr><th>Malzeme</th><th class='sag'>Elde</th><th class='sag'>Al</th><th>Tedarikçi</th></tr>
+{alinacak or "<tr><td class='bos' colspan='4'>Eksik malzeme yok.</td></tr>"}</table>
+{f'<h3>Pahalanan malzemeler</h3><ul>{fiyat}</ul>' if fiyat else ''}
+</div>"""
+
+
+def _menu_formu(baglanti, menu, secili, urunler_gruplu, gecerli_id):
+    kutular = ""
+    for baslik, grup in urunler_gruplu:
+        kutular += (f"<h3>{kacir(baslik)}</h3><div class='giris-liste'>"
+                    + "".join(f"<div style='padding:5px 0'>"
+                              f"{kutucuk('urun_' + str(k['id']), k['id'] in secili, k['ad'])}</div>"
+                              for k in grup)
+                    + "</div>")
+    gecerli_mi = menu["id"] == gecerli_id
+    rozet = " <span class='rozet ur'>şu an geçerli</span>" if gecerli_mi else ""
+    gec_dugmesi = "" if gecerli_mi else (
+        f'<form method="post" action="/menu-gec" style="display:inline">'
+        f'<input type="hidden" name="id" value="{menu["id"]}">'
+        f'<button class="ikincil">Bu menüye şimdi geç</button></form>')
+    return f"""
+<div class="kart"><h2>{kacir(menu['ad'])}{rozet}</h2>
+<form method="post" action="/menu-kaydet">
+<input type="hidden" name="id" value="{menu['id']}">
+<div class="satir">
+<div><label>Menünün adı</label><input type="text" name="ad" value="{kacir(menu['ad'])}" required></div>
+<div><label>Geçiş önerisi</label>{secim("kosul", menuler.KOSULLAR, menu["kosul"])}</div>
+<div><label>Eşik (en yüksek sıcaklık, °C)</label>{sayi_alani("esik", mik(menu["esik"], 1))}</div>
+</div>
+<p class="bos">Bu menüde satılan ürünleri işaretle. Hiçbir menüde işaretli olmayan ürün her
+zaman satılır. Malzemeleri işaretlemen gerekmez: sadece kapanan ürünlerde geçen malzeme
+(bir çeşidin aroması gibi) ürünle birlikte kendiliğinden kapanır.</p>
+{kutular}
+<div style="margin-top:14px"><button>Kaydet</button></div></form>
+<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">{gec_dugmesi}
+<form method="post" action="/menu-sil" style="display:inline">
+<input type="hidden" name="id" value="{menu['id']}">
+<button class="sil">Menüyü sil</button></form></div></div>"""
+
+
+def sayfa_menuler(baglanti, sorgu):
+    gecerli = menuler.gecerli(baglanti)
+    gecis = menuler.son_gecis(baglanti)
+    liste = menuler.liste(baglanti)
+    plan = menuler.oneri(baglanti)
+
+    if gecerli:
+        durum = (f"<p>Şu an <b>{kacir(gecerli['ad'])}</b> geçerli — "
+                 f"{kacir(gun_yaz(gecis['tarih'], False))} tarihinden beri.</p>")
+    elif liste:
+        durum = "<p class='bos'>Henüz hiçbir menüye geçilmedi; bütün ürünler olduğu gibi duruyor.</p>"
+    else:
+        durum = ""
+    gecmis = menuler.gecisler(baglanti)
+    gecmis_html = ""
+    if len(gecmis) > 1:
+        gecmis_html = ("<h3>Geçmiş geçişler</h3><table>"
+                       + "".join(f"<tr><td>{kacir(gun_yaz(g['tarih'], False))}</td>"
+                                 f"<td>{kacir(g['ad'])}</td></tr>" for g in gecmis)
+                       + "</table>")
+
+    tanitim = f"""
+<div class="kart tam"><h2>Menü dönemleri</h2>
+<p class="bos">Mevsime göre değişen menüler: dondurmacının yaz ve kış menüsü, lokantanın yaz ve
+kış sebzeleri. Menüye geçince o menüde olmayan ürünler satış, sayım ve üretim ekranlarından
+kalkar; geri dönünce yerine gelir. Hiçbir kayıt silinmez.</p>
+<p class="bos">Bir menüye "hava soğuyunca öner" dersen program 7 günlük hava tahminine bakar:
+en yüksek sıcaklık {menuler.GUN_ARDISIK} gün üst üste eşiğin altına inecekse ana menüde bir
+geçiş planı çıkarır — hangi gün, kapanacak ürünlerden elde ne kaldığı, ne alınması gerektiği.
+Geçişi sen yaparsın.</p>
+{durum}{gecmis_html}</div>"""
+
+    urunler = menuler.secilebilir_urunler(baglanti)
+    gruplu = hesap.ture_gore(urunler)
+    kartlar = "".join(
+        _menu_formu(baglanti, m, menuler.urunleri(baglanti, m["id"]), gruplu,
+                    gecerli["id"] if gecerli else None)
+        for m in liste)
+
+    yeni = f"""
+<div class="kart"><h2>Yeni menü</h2>
+<form method="post" action="/menu-ekle"><div class="satir">
+<div><label>Menünün adı</label><input type="text" name="ad" placeholder="Kış menüsü" required></div>
+<div><label>Geçiş önerisi</label>{secim("kosul", menuler.KOSULLAR, "")}</div>
+<div><label>Eşik (en yüksek sıcaklık, °C)</label>{sayi_alani("esik", "17")}</div>
+</div>
+<div class="roller">{kutucuk("simdiki", True, "Şu an satılan ürünlerle başlasın")}</div>
+<button>Menüyü ekle</button></form></div>"""
+
+    return tanitim + (_gecis_plani_karti(plan) if plan else "") + kartlar + yeni
+
+
+def islem_menu_ekle(baglanti, veri):
+    ad = veri.get("ad", [""])[0].strip()
+    if not ad:
+        return "/menuler", "!Menünün adını yaz."
+    if baglanti.execute("SELECT 1 FROM menuler WHERE ad = ?", (ad,)).fetchone():
+        return "/menuler", f"!{ad} adında bir menü zaten var."
+    urunler = []
+    if "simdiki" in veri:
+        urunler = [satir[0] for satir in baglanti.execute(
+            "SELECT id FROM kalemler WHERE satilir = 1 AND aktif = 1")]
+    kosul = veri.get("kosul", [""])[0]
+    menuler.ekle(baglanti, ad, kosul if kosul in dict(menuler.KOSULLAR) else "",
+                 sayi(veri.get("esik", ["0"])[0]), urunler)
+    return "/menuler", f"{ad} eklendi. Ürünlerini işaretleyip kaydet."
+
+
+def islem_menu_kaydet(baglanti, veri):
+    menu_id = int(sayi(veri.get("id", ["0"])[0]))
+    ad = veri.get("ad", [""])[0].strip()
+    if menuler.menu(baglanti, menu_id) is None:
+        return "/menuler", "!Menü bulunamadı."
+    if not ad:
+        return "/menuler", "!Menünün adını yaz."
+    if baglanti.execute("SELECT 1 FROM menuler WHERE ad = ? AND id <> ?",
+                        (ad, menu_id)).fetchone():
+        return "/menuler", f"!{ad} adında başka bir menü var."
+    urunler = [kimlik for anahtar in veri
+               if (kimlik := alan_kimligi(anahtar, "urun_")) is not None]
+    kosul = veri.get("kosul", [""])[0]
+    menuler.kaydet(baglanti, menu_id, ad, kosul if kosul in dict(menuler.KOSULLAR) else "",
+                   sayi(veri.get("esik", ["0"])[0]), urunler)
+    # Gecerli menu degistiyse ekrandaki acik/kapali durum da hemen uysun.
+    gecerli = menuler.gecerli(baglanti)
+    if gecerli and gecerli["id"] == menu_id:
+        menuler.uygula(baglanti, menu_id)
+        baglanti.commit()
+    return "/menuler", f"{ad} kaydedildi."
+
+
+def islem_menu_gec(baglanti, veri):
+    menu_id = int(sayi(veri.get("id", ["0"])[0]))
+    menu = menuler.menu(baglanti, menu_id)
+    if menu is None:
+        return "/menuler", "!Menü bulunamadı."
+    sonuc = menuler.gec(baglanti, menu_id)
+    return "/", (f"{menu['ad']} geçerli: {len(sonuc['kapanan'])} ürün kapandı, "
+                 f"{len(sonuc['acilan'])} ürün açıldı.")
+
+
+def islem_menu_ertele(baglanti, veri):
+    menuler.ertele(baglanti, int(sayi(veri.get("id", ["0"])[0])))
+    return "/", f"Tamam, {menuler.ERTELE_GUN} gün sormayacağım."
+
+
+def islem_menu_sil(baglanti, veri):
+    menu_id = int(sayi(veri.get("id", ["0"])[0]))
+    menu = menuler.menu(baglanti, menu_id)
+    if menu is None:
+        return "/menuler", "!Menü bulunamadı."
+    menuler.sil(baglanti, menu_id)
+    return "/menuler", f"{menu['ad']} silindi. Ürünler olduğu gibi duruyor."
+
+
 # ---------------------------------------------------------------- kalemler
 
 def sayfa_kalemler(baglanti, sorgu):
@@ -2312,7 +2613,10 @@ def sayfa_ayarlar(baglanti, sorgu):
 kolisini değiştirmek için burası.</p>
 <p style="margin:12px 0 0"><a class="sablon" href="/kalemler">
 <b>Ürün &amp; Malzeme sayfasını aç</b>
-Kalem listesi, reçeteler ve satış şekilleri</a></p></div>
+Kalem listesi, reçeteler ve satış şekilleri</a></p>
+<p style="margin:12px 0 0"><a class="sablon" href="/menuler">
+<b>Menü dönemlerini aç</b>
+Yaz ve kış menüsü, mevsim geçişi ve geçiş önerisi</a></p></div>
 
 <div class="kart"><h2>Genel ayarlar</h2>
 <form method="post" action="/ayarlar"><div class="satir">
@@ -2675,14 +2979,23 @@ def islem_kalem_kaydet(baglanti, veri):
          1 if "aktif" in veri else 0,
          kalem_id),
     )
+    mesaj = "Kaydedildi."
+    if "aktif" not in veri:
+        if baglanti.execute("SELECT 1 FROM menu_kalemleri WHERE kalem_id = ?",
+                            (kalem_id,)).fetchone():
+            mesaj = "Kaydedildi. Kullanım dışı olduğu için menülerden de çıkarıldı."
+        menuler.kalemden_cikar(baglanti, kalem_id)
+    else:
+        baglanti.execute("UPDATE kalemler SET mevsim_disi = 0 WHERE id = ?", (kalem_id,))
     baglanti.commit()
-    return f"/kalem?id={kalem_id}", "Kaydedildi."
+    return f"/kalem?id={kalem_id}", mesaj
 
 
 def islem_kalem_sil(baglanti, veri):
     """Gecmisi olan kalem silinmez; silinirse eski kayitlar anlamsizlasir.
     Boyle bir kalem sadece pasife alinir, listelerde gorunmez."""
     kalem_id = int(sayi(veri.get("id", ["0"])[0]))
+    menuler.kalemden_cikar(baglanti, kalem_id)
     kullanimda = any(
         baglanti.execute(f"SELECT 1 FROM {tablo} WHERE kalem_id = ? LIMIT 1",
                          (kalem_id,)).fetchone()
@@ -2852,6 +3165,7 @@ SAYFALAR = {
     "/calisanlar": ("Çalışanlar", sayfa_calisanlar),
     "/ozet": ("Raporlar", sayfa_ozet),
     "/kalemler": ("Ürün & Malzeme", sayfa_kalemler),
+    "/menuler": ("Menüler", sayfa_menuler),
     "/kalem": ("Kalem", sayfa_kalem),
     "/tahmin": ("Tahmin", sayfa_tahmin),
     "/ozel-gunler": ("Özel Günler", sayfa_ozel_gunler),
@@ -2875,6 +3189,11 @@ ISLEMLER = {
     "/odeme": islem_odeme,
     "/stok-duzelt": islem_stok_duzelt,
     "/kalem-ekle": islem_kalem_ekle,
+    "/menu-ekle": islem_menu_ekle,
+    "/menu-kaydet": islem_menu_kaydet,
+    "/menu-gec": islem_menu_gec,
+    "/menu-ertele": islem_menu_ertele,
+    "/menu-sil": islem_menu_sil,
     "/kalem-kaydet": islem_kalem_kaydet,
     "/kalem-sil": islem_kalem_sil,
     "/recete-ekle": islem_recete_ekle,
@@ -3215,6 +3534,13 @@ def calistir():
         baglanti = veritabani.hazirla(1)
         baslik = ayar(baglanti, "dukkan_adi", "Dükkanım")
         baglanti.close()
+
+    # Her dukkanin dosyasi yeni surumun tablolarina kavussun. Istekler dosyayi
+    # sadece acar (baglan); yeni bir tablo ya da kolon eklendiginde, acilista
+    # guncellenmeyen bir dukkanin ekrani o tabloyu bulamayip coker.
+    for dukkan_id in _dukkan_kimlikleri():
+        if os.path.exists(veritabani.db_yolu(dukkan_id)):
+            veritabani.hazirla(dukkan_id).close()
 
     threading.Thread(target=hava_bekcisi, daemon=True).start()
 
