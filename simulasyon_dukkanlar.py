@@ -40,6 +40,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hava
 import hesap
 import hesaplar
+import menuler
 import takvim
 import veritabani
 
@@ -273,7 +274,7 @@ def kugu_ozel_gunler(baglanti):
     baglanti.commit()
 
 
-def kugu_carpan(tarih, etiketler, u, gun_hava):
+def kugu_carpan(tarih, etiketler, u, gun_hava, menu_adi=None):
     sicaklik, yagis = gun_hava
     g = u["grup"]
     c = KUGU["hafta"][tarih.weekday()]
@@ -320,39 +321,58 @@ KUGU["ozel_gunler"] = kugu_ozel_gunler
 KUGU["ambalaj"] = kugu_ambalaj
 KUGU["carpan"] = kugu_carpan
 KUGU["acik_mi"] = lambda tarih, etiketler: True
-KUGU["menude_mi"] = lambda tarih, ad: True
+KUGU["menude_mi"] = lambda tarih, ad, menu_adi: True
+KUGU["menuler"] = []
 
 
 # ================================================================ SAMATA CAFE
 # Esnaf lokantasi: her gun bir corba, bir baklagil, bir et yemegi, bir
-# zeytinyagli. Pilav, tatlilar, cacik, salata her gun var.
+# sebze yemegi. Pilav, tatlilar, cacik, salata her gun var.
 SAMATA_MENU = {
-    0: ("Mercimek Çorbası", "Kuru Fasulye", "Tavuk Sote",
-        "Zeytinyağlı Taze Fasulye"),
-    1: ("Ezogelin Çorbası", "Etli Nohut", "Karnıyarık", "Biber Dolma"),
-    2: ("Mercimek Çorbası", "Kuru Fasulye", "İzmir Köfte", "Türlü"),
-    3: ("Tarhana Çorbası", "Etli Nohut", "Sulu Köfte", "Zeytinyağlı Taze Fasulye"),
-    4: ("Mercimek Çorbası", "Kuru Fasulye", "Tavuk Sote", "Biber Dolma"),
-    5: ("Ezogelin Çorbası", "Etli Nohut", "Karnıyarık", "Türlü"),
+    0: ("Mercimek Çorbası", "Kuru Fasulye", "Tavuk Sote"),
+    1: ("Ezogelin Çorbası", "Etli Nohut", "Karnıyarık"),
+    2: ("Mercimek Çorbası", "Kuru Fasulye", "İzmir Köfte"),
+    3: ("Tarhana Çorbası", "Etli Nohut", "Sulu Köfte"),
+    4: ("Mercimek Çorbası", "Kuru Fasulye", "Tavuk Sote"),
+    5: ("Ezogelin Çorbası", "Etli Nohut", "Karnıyarık"),
 }
+# Sebze yemegi mevsime gore: hangi menu gecerliyse onun uc yemegi haftada
+# ikiser kez doner (pazartesi-persembe, sali-cuma, carsamba-cumartesi).
+# Menulere gecisi dukkan programin onerisiyle yapar (menuler.py): hava uc gun
+# ust uste esigi gecince.
+SAMATA_MENULER = [
+    # (ad, kosul, esik, menude yalnizca bu donemde olan urunler)
+    ("Yaz sebzeleri", "sicak", 22,
+     ["Zeytinyağlı Taze Fasulye", "Biber Dolma", "Türlü"]),
+    ("Kış sebzeleri", "soguk", 15,
+     ["Zeytinyağlı Pırasa", "Ispanak Yemeği", "Karalahana Sarması",
+      "Karalahana Çorbası", "Hamsi Tava"]),
+]
+SAMATA_SEBZE = {ad: urunler[:3] for ad, _, _, urunler in SAMATA_MENULER}
 # Tatlilar gunden gune donmuyor: tepsi bitene kadar (en cok uc gun) vitrinde.
 SAMATA_HER_GUN = ("Pirinç Pilavı", "Sütlaç", "Revani", "İrmik Helvası", "Cacık",
                   "Çoban Salata", "Ayran", "Çay", "Türk Kahvesi", "Su")
 
 
 def hamsi_mevsimi(tarih):
-    """Karadeniz'de hamsi kisin; nisan ortasinda av yasagi basliyor."""
-    return tarih.month <= 3
+    """Karadeniz'de hamsi eylulden nisan ortasina; sonra av yasagi. Mart
+    sonunda hamsi hem azalir hem kalitesi duser; lokanta mart sonu birakir."""
+    return tarih.month <= 3 or tarih.month >= 9
 
 
-def samata_menude_mi(tarih, ad):
+def samata_menude_mi(tarih, ad, menu_adi):
     if ad in SAMATA_HER_GUN:
         return True
+    kis = menu_adi == "Kış sebzeleri"
     if ad == "Hamsi Tava":
-        return hamsi_mevsimi(tarih)
-    gunun = SAMATA_MENU.get(tarih.weekday(), ())
-    # Kisin persembe tarhana yerine karalahana corbasi pisiyor.
-    if hamsi_mevsimi(tarih) and tarih.weekday() == 3:
+        return kis and hamsi_mevsimi(tarih)
+    gun = tarih.weekday()
+    sebzeler = SAMATA_SEBZE.get(menu_adi, ())
+    if gun < 6 and sebzeler and ad == sebzeler[gun % 3]:
+        return True
+    gunun = SAMATA_MENU.get(gun, ())
+    # Kis menusunde persembe tarhana yerine karalahana corbasi pisiyor.
+    if kis and gun == 3:
         if ad == "Karalahana Çorbası":
             return True
         if ad == "Tarhana Çorbası":
@@ -370,22 +390,24 @@ def samata_acik_mi(tarih, etiketler):
     return True
 
 
-def samata_carpan(tarih, etiketler, u, gun_hava):
+def samata_carpan(tarih, etiketler, u, gun_hava, menu_adi=None):
     sicaklik, yagis = gun_hava
     g = u["grup"]
     c = [1.0, 1.0, 1.0, 1.0, 1.0, 0.8, 0.0][tarih.weekday()]
     c *= 0.95 if tarih.month == 8 else 1.0        # agustosta esnaf da tatilde
     if g == "corba":
         c *= mevsim(tarih, kis=1.3, yaz=0.65, gecis=1.1)
-    elif g in ("zeytinyagli", "soguk"):
+    elif g == "soguk":
         c *= mevsim(tarih, kis=0.7, yaz=1.5)
+    elif g == "zeytinyagli":
+        c *= mevsim(tarih, yaz=1.2)     # sicakta soguk yenen yemek
     elif g in ("baklagil", "et"):
         c *= mevsim(tarih, yaz=0.9)
     elif g == "ayran":
         c *= mevsim(tarih, kis=0.8, yaz=1.4) * sicaklik_etkisi(sicaklik, 0.006)
     elif g == "sicak":
         c *= mevsim(tarih, kis=1.2, yaz=0.8)
-    if g == "et" and hamsi_mevsimi(tarih):
+    if g == "et" and samata_menude_mi(tarih, "Hamsi Tava", menu_adi):
         c *= 0.8                # hamsi varken et yemegi biraz az gidiyor
     if "Ramazan" in etiketler:
         c *= 0.65
@@ -425,6 +447,8 @@ SAMATA = {
         hammadde("Patates", "kg", 25, HAL, koli=25, koli_ad="çuval"),
         hammadde("Sarımsak", "kg", 200, HAL),
         hammadde("Karalahana", "kg", 40, HAL, "taze"),
+        hammadde("Pırasa", "kg", 40, HAL, "taze"),
+        hammadde("Ispanak", "kg", 50, HAL, "taze"),
         hammadde("Patlıcan", "kg", 40, HAL, "taze"),
         hammadde("Taze Fasulye", "kg", 60, HAL, "taze"),
         hammadde("Dolmalık Biber", "kg", 60, HAL, "taze"),
@@ -512,6 +536,18 @@ SAMATA = {
              recete=[("Dolmalık Biber", 6.0), ("Pirinç", 1.2), ("Soğan", 1.0),
                      ("Zeytinyağı", 0.5), ("Domates", 1.0), ("Salça", 0.1),
                      ("Baharat", 0.04)]),
+        urun("Zeytinyağlı Pırasa", "porsiyon", 150, 15, "kis_sebze", "Zeytinyağlı",
+             raf=1, parti=("tencere", 30), adim=0.125,
+             recete=[("Pırasa", 6.0), ("Havuç", 1.0), ("Pirinç", 0.5), ("Zeytinyağı", 0.5),
+                     ("Limon", 0.2), ("Toz Şeker", 0.05)]),
+        urun("Ispanak Yemeği", "porsiyon", 150, 15, "kis_sebze", "Zeytinyağlı", raf=1,
+             parti=("tencere", 30), adim=0.125,
+             recete=[("Ispanak", 7.0), ("Soğan", 1.0), ("Pirinç", 0.4), ("Salça", 0.1),
+                     ("Zeytinyağı", 0.4), ("Yoğurt", 1.5)]),
+        urun("Karalahana Sarması", "porsiyon", 150, 15, "kis_sebze", "Zeytinyağlı",
+             raf=1, parti=("tepsi", 30), adim=0.125,
+             recete=[("Karalahana", 4.0), ("Pirinç", 1.5), ("Dana Kıyma", 1.0),
+                     ("Soğan", 1.0), ("Salça", 0.2), ("Tereyağı", 0.2), ("Baharat", 0.03)]),
         urun("Türlü", "porsiyon", 150, 15, "zeytinyagli", "Zeytinyağlı", raf=1,
              parti=("tencere", 30), adim=0.125,
              recete=[("Patlıcan", 2.0), ("Kabak", 2.0), ("Patates", 2.0),
@@ -560,11 +596,13 @@ SAMATA = {
     "carpan": samata_carpan,
     "acik_mi": samata_acik_mi,
     "menude_mi": samata_menude_mi,
+    "menuler": SAMATA_MENULER,
+    "ilk_menu": "Kış sebzeleri",       # 1 Ocak'ta kis
 }
 
 
 # ================================================================ SUSU MANTI
-def susu_carpan(tarih, etiketler, u, gun_hava):
+def susu_carpan(tarih, etiketler, u, gun_hava, menu_adi=None):
     sicaklik, yagis = gun_hava
     g = u["grup"]
     c = [1.0, 1.0, 1.0, 1.0, 1.05, 1.4, 1.6][tarih.weekday()]   # pazar ogleni dolu
@@ -665,7 +703,8 @@ SUSU = {
     "ambalaj": lambda talep: {},
     "carpan": susu_carpan,
     "acik_mi": lambda tarih, etiketler: True,
-    "menude_mi": lambda tarih, ad: True,
+    "menude_mi": lambda tarih, ad, menu_adi: True,
+    "menuler": [],
 }
 
 DUKKANLAR = [KUGU, SAMATA, SUSU]
@@ -848,6 +887,12 @@ def yapiyi_kur(baglanti, tanim):
     for ad, gorev, maas, sgk, giris, notlar in tanim["calisanlar"]:
         hesap.calisan_ekle(baglanti, ad, gorev, "", maas, sgk, giris, notlar)
     tanim["ozel_gunler"](baglanti)
+
+    # Menu donemleri: programin kendi menuler ekrani ne yaziyorsa o.
+    for ad, kosul, esik, urunler in tanim["menuler"]:
+        menu_id = menuler.ekle(baglanti, ad, kosul, esik, [kimlik[u] for u in urunler])
+        if ad == tanim.get("ilk_menu"):
+            menuler.gec(baglanti, menu_id, BASLANGIC.isoformat())
     return kimlik, receteler
 
 
@@ -871,6 +916,8 @@ class Simulasyon:
         self.gecmis = collections.defaultdict(lambda: collections.deque(maxlen=14))
         # Raftaki her urunun partileri, eskiden yeniye: [kac gunluk, miktar].
         self.raf = collections.defaultdict(list)
+        gecerli = menuler.gecerli(baglanti)
+        self.menu_adi = gecerli["ad"] if gecerli else None
         self.fire_tutari = 0.0
         self.istenen = 0.0        # musterinin istedigi (TL)
         self.karsilanamayan = 0.0  # "bitti" denen (TL)
@@ -904,10 +951,11 @@ class Simulasyon:
             return {u["ad"]: 0.0 for u in self.t["urunler"]}
         gun_sapmasi = 1.0 if beklenen else max(0.5, self.zar.gauss(1.0, GUN_SAPMASI))
         for u in self.t["urunler"]:
-            if not self.t["menude_mi"](tarih, u["ad"]):
+            if not self.t["menude_mi"](tarih, u["ad"], self.menu_adi):
                 sonuc[u["ad"]] = 0.0
                 continue
-            miktar = u["gunluk"] * self.t["carpan"](tarih, etiketler, u, gun_hava)
+            miktar = u["gunluk"] * self.t["carpan"](tarih, etiketler, u, gun_hava,
+                                                    self.menu_adi)
             if not beklenen:
                 miktar *= gun_sapmasi * max(0.3, self.zar.gauss(1.0, URUN_SAPMASI))
                 miktar = round(miktar / u["satis_adim"]) * u["satis_adim"]
@@ -1144,6 +1192,19 @@ class Simulasyon:
             hesap.sayim_duzelt(self.b, tarih, kalem_id, eldeki - atilacak, sebep)
             stok[kalem_id] = eldeki - atilacak
 
+    # ---- menu
+    def menu_gecisi(self, tarih):
+        """Dukkan sahibi programin gecis onerisine uyar: onerilen gun gelince
+        gecer. Oneri ana menudeki ile ayni hesap (menuler.oneri); tek fark,
+        burada hava tahmini yerine o gunlerin gerceklesen havasi var."""
+        if not self.t["menuler"]:
+            return
+        plan = menuler.oneri(self.b, bugun=tarih)
+        if plan and plan["tarih"] <= tarih:
+            menuler.gec(self.b, plan["menu"]["id"], tarih.isoformat())
+            self.menu_adi = plan["menu"]["ad"]
+            print(f"  {tarih}: {self.menu_adi} ({_neden(plan)})")
+
     # ---- fiyat, gider, odeme
     def zam_yap(self):
         for u in self.t["urunler"]:
@@ -1257,6 +1318,7 @@ class Simulasyon:
                 self.zam_yap()
             gun_hava = gunun_havasi(tarih)
             etiketler = etiket_haritasi.get(t, {})
+            self.menu_gecisi(tarih)
 
             beklenen = self.talepler(tarih, etiketler, gun_hava, beklenen=True)
             talep = self.talepler(tarih, etiketler, gun_hava)
@@ -1295,6 +1357,10 @@ class Simulasyon:
             tarih += datetime.timedelta(days=1)
             gun_no += 1
         self.b.commit()
+
+
+def _neden(plan):
+    return ", ".join(f"{gun:%d.%m} {derece:.0f}°" for gun, derece in plan["dizi"])
 
 
 # ---------------------------------------------------------------- rapor
