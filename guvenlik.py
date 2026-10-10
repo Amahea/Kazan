@@ -88,3 +88,30 @@ def cerez_yaz(deger, https, omur=OTURUM_GUN * 24 * 3600):
 
 def cerez_sil(https):
     return cerez_yaz("", https, 0)
+
+
+def cerez_deger(baslik, ad):
+    """Ham 'Cookie' basligindan adi verilen cerezin degerini ayiklar."""
+    for parca in (baslik or "").split(";"):
+        a, _, deger = parca.strip().partition("=")
+        if a == ad:
+            return deger
+    return ""
+
+
+def deger_cerezi(ad, deger, https, omur=365 * 24 * 3600):
+    """Oturumla ilgisi olmayan, acik bir tercih cerezi icin Set-Cookie.
+
+    Dil secimi (dil=en) ya da tanitimin gorulup gorulmedigi gibi; icinde gizli
+    bir sey yoktur, o yuzden imzalanmaz."""
+    parcalar = [f"{ad}={deger}", "Path=/", f"Max-Age={omur}", "SameSite=Lax"]
+    if https:
+        parcalar.append("Secure")
+    return "; ".join(parcalar)
+
+
+def bayrak_cerezi(ad, https, omur=365 * 24 * 3600):
+    """Basit bir "bu oldu" isareti: sadece 1 degeri durur.
+
+    Tanitim ekraninin bir kez gosterilip bir daha gosterilmemesi gibi."""
+    return deger_cerezi(ad, "1", https, omur)

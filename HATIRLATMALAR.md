@@ -320,3 +320,35 @@ dolu hâli görünür, hava-ciro ilişkisi test edilebilir.
 **Bittiğinde:** simülasyon verisi silinip gerçek satışlarla devam edilecekse,
 tahmin modeli sıfırdan öğrenmeye başlar — bu normaldir, veri gidince öğrendiği
 de gider.
+
+---
+
+## 7. Yedi farklı kategoride dükkan için simülasyon verisi
+
+*7 Eylül 2026'da eklendi.*
+
+Program artık çok dükkanlı çalışıyor ve internete açıldı
+(`https://esnaf.duckdns.org`). Sıradaki iş, programı dondurmacı dışındaki
+esnafa da göstermek: **yedi farklı kategoride birer örnek dükkan** açılacak ve
+her birine **1 Ocak 2026'dan bugüne** gerçeğe yakın uydurma satış verisi
+girilecek.
+
+Amaç: birini açan esnaf ekranları dolu görsün, "bu benim işime de uyar mı"
+sorusunun cevabını rakamların üstünde alsın.
+
+- [ ] **Yedi kategori seçilecek.** Hangileri olacağı henüz kararlaşmadı.
+      Kategori, satış biçimini belirlediği için önemli: kiloyla mı, adetle mi,
+      porsiyonla mı satıyor; malzemesi bozuluyor mu; sezonluk mu.
+- [ ] **Her kategorinin kendi ürün, reçete ve fiyat listesi çıkarılacak.**
+      Dondurmacınınki hazır; ötekiler sıfırdan.
+- [ ] **`simulasyon.py` kategorilere göre genelleştirilecek.** Şu an sadece
+      dondurmacıya göre yazılmış — sezon tarihleri, sıcaklık etkisi, aroma
+      ağırlıkları hep dondurma varsayımları. Her kategorinin kendi mevsim ve
+      hava davranışı olacak (fırının kışın artması, dondurmacının yazın gibi).
+- [ ] **Her dükkan ayrı veri dosyasında** — `dukkanlar/dukkan-3.db` ve sonrası.
+      Bu yapı zaten kurulu, yeni bir şey gerekmiyor.
+- [ ] **Bu dükkanların örnek olduğu belli olsun.** Gerçek bir esnafın verisiyle
+      karışmamalı; adında ya da ekranda "örnek" ibaresi dursun.
+
+**Bağlantılı:** Madde 6 aynı işin dondurmacı için olanı; oradaki kararlar
+(veriyi ayrı dosyada tutmak, önce yedek almak) burada da geçerli.

@@ -411,61 +411,67 @@ def ozel_gun_beklentisi(baglanti, model, gun_sayisi=90):
 # ---------------------------------------------------------------- anlatim
 
 def durum_metni(model, baglanti=None):
-    """Modelin ne durumda oldugunu duz Turkce anlatir."""
+    """Modelin ne durumda oldugunu anlatir (secili dile gore)."""
+    from diller import C
     if model["gun_sayisi"] == 0:
-        return (f"Henüz hiç satış kaydı yok. Tahmin, geçmiş günlerin hava durumu ile "
-                f"o günün cirosunu karşılaştırarak öğreniyor; en az {EN_AZ_GUN} günlük "
-                f"satış gerekiyor. Gün sonu satışlarını girmeye başladığında "
-                f"kendiliğinden çalışacak — senin ayrıca bir şey yapman gerekmiyor, "
-                f"her günün havası şimdiden kaydediliyor.")
+        return C("Henüz hiç satış kaydı yok. Tahmin, geçmiş günlerin hava durumu ile "
+                 "o günün cirosunu karşılaştırarak öğreniyor; en az {en_az} günlük satış "
+                 "gerekiyor. Gün sonu satışlarını girmeye başladığında kendiliğinden "
+                 "çalışacak — senin ayrıca bir şey yapman gerekmiyor, her günün havası "
+                 "şimdiden kaydediliyor.", en_az=EN_AZ_GUN)
     if not model["yeterli"]:
-        return (f"{model['gun_sayisi']} günlük veri var, tahmin için en az {EN_AZ_GUN} "
-                f"gün gerekiyor. {model['eksik_gun']} gün daha satış girildiğinde "
-                f"tahminler burada görünmeye başlayacak.")
+        return C("{gun} günlük veri var, tahmin için en az {en_az} gün gerekiyor. "
+                 "{eksik} gün daha satış girildiğinde tahminler burada görünmeye "
+                 "başlayacak.", gun=model['gun_sayisi'], en_az=EN_AZ_GUN,
+                 eksik=model['eksik_gun'])
 
-    parcalar = [f"{model['gun_sayisi']} günlük satış geçmişine bakıyor"]
+    parcalar = [C("{gun} günlük satış geçmişine bakıyor", gun=model['gun_sayisi'])]
 
     if model["sicaklik"]:
-        parcalar.append(f"her 1 derece sıcaklık günlük ciroyu ortalama "
-                        f"{model['sicaklik'][0]:,.0f} birim değiştiriyor"
-                        .replace(",", "."))
+        deger = f"{model['sicaklik'][0]:,.0f}".replace(",", ".")
+        parcalar.append(C("her 1 derece sıcaklık günlük ciroyu ortalama {deger} birim "
+                          "değiştiriyor", deger=deger))
     elif model["gun_sayisi"] < SICAKLIK_ICIN:
-        parcalar.append(f"sıcaklık etkisi için {SICAKLIK_ICIN - model['gun_sayisi']} "
-                        f"gün daha gerekiyor")
+        parcalar.append(C("sıcaklık etkisi için {n} gün daha gerekiyor",
+                          n=SICAKLIK_ICIN - model['gun_sayisi']))
     elif model["sicaklik_araligi"] < EN_AZ_SICAKLIK_ARALIGI:
-        parcalar.append(f"geçmiş günlerin hepsi birbirine yakın sıcaklıkta "
-                        f"({model['sicaklik_araligi']:.1f} derece fark); sıcaklığın "
-                        f"etkisini görmek için en az {EN_AZ_SICAKLIK_ARALIGI:.0f} "
-                        f"derecelik fark gerekiyor")
+        parcalar.append(C("geçmiş günlerin hepsi birbirine yakın sıcaklıkta ({fark} "
+                          "derece fark); sıcaklığın etkisini görmek için en az {en_az} "
+                          "derecelik fark gerekiyor",
+                          fark=f"{model['sicaklik_araligi']:.1f}",
+                          en_az=f"{EN_AZ_SICAKLIK_ARALIGI:.0f}"))
     else:
-        parcalar.append("sıcaklık ile satış arasında güvenilir bir ilişki bulunamadı, "
-                        "şimdilik günlük ortalama kullanılıyor")
+        parcalar.append(C("sıcaklık ile satış arasında güvenilir bir ilişki bulunamadı, "
+                          "şimdilik günlük ortalama kullanılıyor"))
 
     if abs(model["yagmur_katsayisi"] - 1.0) > 0.01:
         yuzde = (model["yagmur_katsayisi"] - 1) * 100
-        parcalar.append(f"yağmurlu günlerde satış %{abs(yuzde):.0f} "
-                        f"{'artıyor' if yuzde > 0 else 'düşüyor'}")
+        yon = C("artıyor") if yuzde > 0 else C("düşüyor")
+        parcalar.append(C("yağmurlu günlerde satış %{yuzde} {yon}",
+                          yuzde=f"{abs(yuzde):.0f}", yon=yon))
     elif model["yagmurlu_gun"] < EN_AZ_KARSILASTIRMA:
-        parcalar.append("yağmur etkisi için yeterli yağmurlu gün geçmedi")
+        parcalar.append(C("yağmur etkisi için yeterli yağmurlu gün geçmedi"))
     elif model["gun_sayisi"] - model["yagmurlu_gun"] < EN_AZ_KARSILASTIRMA:
-        parcalar.append("neredeyse bütün günler yağışlı geçmiş, "
-                        "karşılaştıracak kuru gün yok")
+        parcalar.append(C("neredeyse bütün günler yağışlı geçmiş, karşılaştıracak kuru "
+                          "gün yok"))
 
     if model["gun_katsayilari"]:
         en_iyi = max(model["gun_katsayilari"].items(), key=lambda i: i[1])
-        parcalar.append(f"en yoğun gün {GUN_ADLARI[en_iyi[0]]} "
-                        f"(normalin {en_iyi[1]:.2f} katı)")
+        parcalar.append(C("en yoğun gün {gun} (normalin {kat} katı)",
+                          gun=C(GUN_ADLARI[en_iyi[0]]), kat=f"{en_iyi[1]:.2f}"))
     elif model["hafta_sonu_katsayisi"] is not None:
         kat = model["hafta_sonu_katsayisi"]
-        parcalar.append(f"hafta sonu satışı hafta içinin {kat:.2f} katı"
-                        f" (her güne ayrı katsayı için {HAFTA_GUNU_ICIN} gün gerekiyor)")
+        parcalar.append(C("hafta sonu satışı hafta içinin {kat} katı (her güne ayrı "
+                          "katsayı için {n} gün gerekiyor)",
+                          kat=f"{kat:.2f}", n=HAFTA_GUNU_ICIN))
     else:
-        parcalar.append(f"hafta sonu etkisi için {HAFTA_SONU_ICIN} gün gerekiyor")
+        parcalar.append(C("hafta sonu etkisi için {n} gün gerekiyor", n=HAFTA_SONU_ICIN))
 
     if model["etiket_katsayilari"]:
         for etiket, (kat, adet) in sorted(model["etiket_katsayilari"].items()):
-            parcalar.append(f"{etiket}: normalin {kat:.2f} katı ({adet} güne bakarak)")
+            parcalar.append(C("{etiket}: normalin {kat} katı ({adet} güne bakarak)",
+                              etiket=etiket, kat=f"{kat:.2f}", adet=adet))
     else:
-        parcalar.append("özel gün etkisi için henüz o günlerden geçilmedi")
+        parcalar.append(C("özel gün etkisi için henüz o günlerden geçilmedi"))
 
     return " · ".join(parcalar) + "."

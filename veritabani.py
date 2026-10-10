@@ -616,21 +616,32 @@ SABLONLAR = {
 
 
 def sablon_uygula(baglanti, anahtar):
-    """Secilen sablonun kalemlerini ve recetelerini bos veritabanina yazar."""
+    """Secilen sablonun kalemlerini ve recetelerini bos veritabanina yazar.
+
+    Secili dil Ingilizceyse ad/birim/tur gibi metinler yazilirken cevrilir
+    (diller.C). Recetelerin kalemlere baglanmasi orijinal Turkce adlar uzerinden
+    yapilir, boylece ceviri bagi bozmaz. Turkcede C() metni oldugu gibi birakir.
+    """
+    import diller
     sablon = SABLONLAR.get(anahtar)
     if sablon is None:
         return False
 
+    CEVRILIR = ("ad", "birim", "tur", "koli_ad", "aciklama")
+
     kimlikler = {}
     for kalem in sablon["kalemler"]:
-        alanlar = ", ".join(kalem)
-        isaretler = ", ".join("?" * len(kalem))
+        yazilacak = {k: (diller.C(v) if k in CEVRILIR and isinstance(v, str) and v else v)
+                     for k, v in kalem.items()}
+        alanlar = ", ".join(yazilacak)
+        isaretler = ", ".join("?" * len(yazilacak))
         baglanti.execute(
             f"INSERT OR IGNORE INTO kalemler ({alanlar}) VALUES ({isaretler})",
-            tuple(kalem.values()),
+            tuple(yazilacak.values()),
         )
+        # Anahtar orijinal Turkce ad; satir yazisi cevrili ad uzerinden bulunur.
         kimlikler[kalem["ad"]] = baglanti.execute(
-            "SELECT id FROM kalemler WHERE ad = ?", (kalem["ad"],)
+            "SELECT id FROM kalemler WHERE ad = ?", (yazilacak["ad"],)
         ).fetchone()["id"]
 
     for sira, recete in enumerate(sablon["receteler"]):
@@ -639,8 +650,8 @@ def sablon_uygula(baglanti, anahtar):
             continue
         recete_id = baglanti.execute(
             "INSERT INTO receteler (urun_id, ad, verim, parti_ad, sira) VALUES (?, ?, ?, ?, ?)",
-            (urun_id, recete.get("ad", ""), recete.get("verim", 1),
-             recete.get("parti_ad", "parti"), sira),
+            (urun_id, diller.C(recete.get("ad", "")), recete.get("verim", 1),
+             diller.C(recete.get("parti_ad", "parti")), sira),
         ).lastrowid
         for malzeme_adi, miktar in recete["satirlar"]:
             malzeme_id = kimlikler.get(malzeme_adi)
@@ -651,7 +662,7 @@ def sablon_uygula(baglanti, anahtar):
                     (recete_id, malzeme_id, miktar),
                 )
 
-    ayar_yaz(baglanti, "dukkan_adi", sablon["dukkan"])
+    ayar_yaz(baglanti, "dukkan_adi", diller.C(sablon["dukkan"]))
     ayar_yaz(baglanti, "satis_girisi", sablon["satis_girisi"])
     ayar_yaz(baglanti, "kurulum_bitti", "1")
     baglanti.commit()

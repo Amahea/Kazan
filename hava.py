@@ -65,7 +65,8 @@ SIMGELER = {
 
 
 def hadise_metni(kod):
-    return HADISELER.get((kod or "").upper(), (kod or "").lower())
+    import diller
+    return diller.C(HADISELER.get((kod or "").upper(), (kod or "").lower()))
 
 
 def simge(satir):

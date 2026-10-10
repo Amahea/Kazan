@@ -11,6 +11,8 @@ acilista bir dukkan sablonu secilir ve oradan devam edilir.
 """
 
 import datetime
+import diller
+from diller import C
 import html
 import os
 import socket
@@ -29,6 +31,7 @@ import hesaplar
 import menuler
 import tahmin as tahmin_modulu
 import takvim
+import tanitim
 import veritabani
 from veritabani import ayar, ayar_yaz, sayi
 
@@ -385,18 +388,68 @@ def menu_ogeleri(baglanti):
     return MENU
 
 
+# Dil dugmesindeki bayraklar. Ulke-bayragi emojileri (🇹🇷/🇬🇧) Windows
+# masaustunde bayrak olarak CIKMAZ (harf gorunur); o yuzden her cihazda ayni
+# duran kucuk SVG bayraklar gomuluyor. viewBox'lar ayni oran: 3:2.
+BAYRAK_TR = (
+    '<svg viewBox="0 0 30 20" width="26" height="17" aria-hidden="true" '
+    'style="display:block;border-radius:2px">'
+    '<rect width="30" height="20" fill="#E30A17"/>'
+    '<circle cx="11.5" cy="10" r="5" fill="#fff"/>'
+    '<circle cx="12.9" cy="10" r="4" fill="#E30A17"/>'
+    '<polygon fill="#fff" points="18.40,7.30 19.03,9.13 20.97,9.17 19.43,10.33 '
+    '19.99,12.18 18.40,11.08 16.81,12.18 17.37,10.33 15.83,9.17 17.77,9.13"/>'
+    '</svg>')
+BAYRAK_EN = (
+    '<svg viewBox="0 0 60 40" width="26" height="17" aria-hidden="true" '
+    'style="display:block;border-radius:2px">'
+    '<clipPath id="ukj"><rect width="60" height="40"/></clipPath>'
+    '<g clip-path="url(#ukj)">'
+    '<rect width="60" height="40" fill="#012169"/>'
+    '<path d="M0,0 60,40 M60,0 0,40" stroke="#fff" stroke-width="8"/>'
+    '<path d="M0,0 60,40 M60,0 0,40" stroke="#C8102E" stroke-width="5"/>'
+    '<rect x="25" width="10" height="40" fill="#fff"/>'
+    '<rect y="15" width="60" height="10" fill="#fff"/>'
+    '<rect x="26.5" width="7" height="40" fill="#C8102E"/>'
+    '<rect y="16.5" width="60" height="7" fill="#C8102E"/>'
+    '</g></svg>')
+BAYRAKLAR = {"tr": BAYRAK_TR, "en": BAYRAK_EN}
+DIL_ADI = {"tr": "Türkçe", "en": "English"}
+
+
+def dil_secici(geri="/"):
+    """Ustteki bayrak dugmeleri. Secili dilin bayragi net, obur dil soluk ve
+    tiklanabilir. Secim cerezle hatirlanir, otomatik tespiti ezer. 'geri'
+    tiklandiktan sonra donulecek sayfadir."""
+    simdi = diller.simdiki()
+    g = urllib.parse.quote(geri, safe="/")
+
+    def bag(kod):
+        bayrak = BAYRAKLAR[kod]
+        if kod == simdi:
+            return (f'<span class="dil-se" title="{DIL_ADI[kod]}" '
+                    f'style="opacity:1;box-shadow:0 0 0 2px currentColor;'
+                    f'border-radius:3px;display:inline-flex">{bayrak}</span>')
+        return (f'<a class="dil-se" title="{DIL_ADI[kod]}" aria-label="{DIL_ADI[kod]}" '
+                f'style="opacity:.45;display:inline-flex;border-radius:3px" '
+                f'href="/dil?d={kod}&geri={g}">{bayrak}</a>')
+
+    return (f'<div class="dil-secici" style="display:inline-flex;gap:9px;'
+            f'align-items:center">{bag("tr")}{bag("en")}</div>')
+
+
 def sayfa(baglanti, yol, baslik, icerik, mesaj=""):
     menu = "".join(
         f'<a href="{adres}" class="'
         f'{"aktif" if yol == adres or yol in alt else ""}">'
-        f'<span class="simge">{simge}</span>{ad}</a>'
+        f'<span class="simge">{simge}</span>{C(ad)}</a>'
         for adres, ad, simge, alt in menu_ogeleri(baglanti)
     )
     # Cikis ancak girilmis bir hesap varsa anlamli. Dukkan icinde, defterde
     # hic kullanici yokken program dogrudan aciliyor; orada cikis anlamsiz.
     if getattr(_istek, "kullanici", None):
         menu += ('<form method="post" action="/cikis" style="display:contents">'
-                 '<button><span class="simge">🚪</span>Çıkış</button></form>')
+                 f'<button><span class="simge">🚪</span>{C("Çıkış")}</button></form>')
     # Basinda '!' olan mesaj bir uyaridir; yesil degil kirmizi kutuda gosterilir.
     mesaj_html = ""
     if mesaj:
@@ -413,10 +466,11 @@ def sayfa(baglanti, yol, baslik, icerik, mesaj=""):
         govde = f'<div class="ana-duzen">{govde}<aside class="yan">{yan}</aside></div>'
 
     return f"""<!DOCTYPE html>
-<html lang="tr"><head><meta charset="utf-8">
+<html lang="{diller.simdiki()}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{kacir(baslik)} - {dukkan}</title><style>{STIL}</style></head>
-<body><header><h1>{dukkan}</h1></header><nav>{menu}</nav>
+<title>{kacir(C(baslik))} - {dukkan}</title><style>{STIL}</style></head>
+<body><header style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+<h1>{dukkan}</h1>{dil_secici(yol)}</header><nav>{menu}</nav>
 <main>{mesaj_html}{govde}</main>{SIFRE_BETIGI}</body></html>"""
 
 
@@ -429,11 +483,11 @@ def _yan_hava_satirlari(baglanti, gun_sayisi=7):
         gun = hava.gun(baglanti, tarih)
         if gun is None or gun["en_yuksek"] is None:
             continue
-        gun_adi = ("Bugün" if kaydirma == 0 else
-                   "Yarın" if kaydirma == 1 else
-                   tahmin_modulu.GUN_ADLARI[(bugun + datetime.timedelta(days=kaydirma)).weekday()])
+        gun_adi = (C("Bugün") if kaydirma == 0 else
+                   C("Yarın") if kaydirma == 1 else
+                   C(tahmin_modulu.GUN_ADLARI[(bugun + datetime.timedelta(days=kaydirma)).weekday()]))
         alt = kacir(hava.hadise_metni(gun["hadise"])
-                    or ("yağışlı" if gun["yagmurlu"] else ""))
+                    or (C("yağışlı") if gun["yagmurlu"] else ""))
         oran = hava.ihtimal(gun)
         if oran is not None:
             alt += f'{" · " if alt else ""}☔ %{oran}'
@@ -452,9 +506,9 @@ def yan_panel(baglanti):
         return ""
 
     if not hava.sehir_secili_mi(baglanti):
-        return ('<div class="kart"><h2>Tahmin</h2>'
-                '<p class="bos">Hava ve satış tahmini için '
-                '<a href="/ayarlar">Ayarlar</a> sayfasından ilini seç.</p></div>')
+        ipuc = C('Hava ve satış tahmini için <a href="/ayarlar">Ayarlar</a> sayfasından ilini seç.')
+        return (f'<div class="kart"><h2>{C("Tahmin")}</h2>'
+                f'<p class="bos">{ipuc}</p></div>')
 
     sehir = kacir(ayar(baglanti, "sehir", ""))
     model, _gunler, uretimler = tahmin_modulu.ileri_tahmin(baglanti, 7)
@@ -465,9 +519,9 @@ def yan_panel(baglanti):
     if not govde:
         govde = f'<p class="bos">{kacir(tahmin_modulu.durum_metni(model))}</p>'
 
-    panel = (f'<div class="kart"><h2>{sehir} — hava</h2>{govde}'
+    panel = (f'<div class="kart"><h2>{C("{sehir} — hava", sehir=sehir)}</h2>{govde}'
              f'<p class="bos" style="margin-top:10px">'
-             f'<a href="/tahmin">Tahmin sayfasını aç</a></p></div>')
+             f'<a href="/tahmin">{C("Tahmin sayfasını aç")}</a></p></div>')
 
     uretme = menuler.uretilmeyecekler(menuler.oneri(baglanti))
     acik_olanlar = [oneri for oneri in uretimler
@@ -475,16 +529,17 @@ def yan_panel(baglanti):
     if acik_olanlar:
         satirlar = "".join(
             f'<div class="yan-satir"><div>{kacir(oneri["kalem"]["ad"])}'
-            f'<div class="bos" style="font-size:13px">{mik(oneri["acik"], 1)} '
-            f'{kacir(oneri["kalem"]["birim"])} açık</div></div>'
+            f'<div class="bos" style="font-size:13px">'
+            f'{C("{miktar} {birim} açık", miktar=mik(oneri["acik"], 1), birim=kacir(oneri["kalem"]["birim"]))}'
+            f'</div></div>'
             f'<div class="sag"><b>{oneri["parti"]} '
             f'{kacir(oneri["parti_ad"])}</b></div></div>'
             for oneri in acik_olanlar
         )
-        panel += (f'<div class="kart"><h2>Ne üretmeli</h2>{satirlar}'
-                  f'<p class="bos" style="margin-top:10px">Tahmine göre eldeki '
-                  f'stok bu kadar yetmiyor. Kazan tam çırpıldığı için öneri '
-                  f'her zaman tam sayıdır.</p></div>')
+        aciklama = C("Tahmine göre eldeki stok bu kadar yetmiyor. Kazan tam "
+                     "çırpıldığı için öneri her zaman tam sayıdır.")
+        panel += (f'<div class="kart"><h2>{C("Ne üretmeli")}</h2>{satirlar}'
+                  f'<p class="bos" style="margin-top:10px">{aciklama}</p></div>')
 
     return panel
 
@@ -494,6 +549,21 @@ def yan_panel(baglanti):
 # hangi dukkana bakildigi bilinmiyor. Ekranda tek bir is var: kim oldugunu
 # soylemek. O yuzden sayfa ortada tek karttan ibaret.
 KAPAK_STIL = """
+/* Tanitim paneli: giris sayfasinin icinde acilir, ekrani tamamen kaplamaz. */
+.tanitim-ortu { position:fixed; inset:0; z-index:100; display:flex;
+    align-items:center; justify-content:center; padding:16px;
+    background:rgba(10,30,50,.55); }
+.tanitim-ortu[hidden] { display:none; }
+.tanitim-kutu { width:min(960px, 95vw); height:min(82vh, 860px); background:#fff;
+    border-radius:14px; overflow:hidden; display:flex; flex-direction:column;
+    box-shadow:0 24px 60px rgba(0,0,0,.4); }
+.tanitim-bar { display:flex; align-items:center; justify-content:space-between;
+    padding:10px 14px; background:#0f4c75; color:#fff; font-weight:600; font-size:15px; }
+.tanitim-bar button { background:rgba(255,255,255,.16); color:#fff; border:0;
+    border-radius:7px; width:30px; height:30px; font-size:16px; cursor:pointer; line-height:1; }
+.tanitim-bar button:hover { background:rgba(255,255,255,.28); }
+.tanitim-kutu iframe { flex:1; width:100%; border:0; background:#fff; }
+
 body.kapak { min-height:100vh; margin:0; display:flex; align-items:center;
     justify-content:center; padding:24px 16px;
     background:linear-gradient(160deg, #14567f 0%, #0f4c75 45%, #0a3350 100%); }
@@ -528,40 +598,59 @@ body.kapak { min-height:100vh; margin:0; display:flex; align-items:center;
 """
 
 
-def _kapak(baslik, icerik, alt="", genislik=400):
+def _kapak(baslik, icerik, alt="", genislik=400, ek=""):
     """Giris/kayit ekranlarinin ortak cercevesi: menusuz, ortada tek kart.
 
     Bu ekranlar herhangi bir dukkanin verisine daha bakmadan cizilir - kimin
     girdigi henuz bilinmiyor, dolayisiyla dukkan adi da bilinmiyor. Basliktaki
-    "Dükkan Takip" bu yuzden sabit.
+    "Dükkan Takip" bu yuzden sabit. 'ek' sayfanin sonuna eklenir (tanitim paneli).
     """
     return f"""<!DOCTYPE html>
-<html lang="tr"><head><meta charset="utf-8">
+<html lang="{diller.simdiki()}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{kacir(baslik)} - Dükkan Takip</title>
+<title>{kacir(C(baslik))} - Dükkan Takip</title>
 <style>{STIL}{KAPAK_STIL}</style></head>
 <body class="kapak">
 <div class="kapak-govde" style="max-width:{genislik}px">
+<div style="text-align:center;margin-bottom:10px;color:#fff">{dil_secici("/giris")}</div>
 <div class="marka"><div class="isaret">🏪</div>
-<h1>Dükkan Takip</h1><p>Kasa, stok ve satış tek yerde</p></div>
+<h1>Dükkan Takip</h1><p>{C("Kasa, stok ve satış tek yerde")}</p></div>
 <div class="kapak-kart">{icerik}</div>
 {f'<p class="kapak-alt">{alt}</p>' if alt else ''}
-</div>{SIFRE_BETIGI}</body></html>"""
+</div>{ek}{SIFRE_BETIGI}</body></html>"""
 
 
-def giris_sayfasi(hata="", eposta=""):
+def _tanitim_paneli(acik=False):
+    """Giris sayfasinin icinde acilan tanitim paneli: ayri sayfa degil, ekrani
+    tamamen kaplamayan bir iframe. Ilk geliste acik baslar."""
+    gizli = "" if acik else " hidden"
+    return (f'<div id="tanitim-ortu" class="tanitim-ortu"{gizli}>'
+            f'<div class="tanitim-kutu">'
+            f'<div class="tanitim-bar"><span>{C("Tanıtım")}</span>'
+            f'<button type="button" onclick="document.getElementById(\'tanitim-ortu\').hidden=true" '
+            f'aria-label="{C("Kapat")}">✕</button></div>'
+            f'<iframe src="/tanitim" title="{C("Tanıtım")}" loading="lazy"></iframe>'
+            f'</div></div>')
+
+
+def giris_sayfasi(hata="", eposta="", tanitim_ac=False):
     """Giris ekrani. Giris yapmadan hicbir sayfa gorunmez."""
     uyari = f'<div class="kapak-hata">{kacir(hata)}</div>' if hata else ""
+    ac_js = "document.getElementById('tanitim-ortu').hidden=false;return false"
     return _kapak("Giriş", f"""
-<h2>Giriş yap</h2>
-<p class="alt-baslik">Dükkanının kayıtlarına ulaşmak için.</p>{uyari}
+<h2>{C("Giriş yap")}</h2>
+<p class="alt-baslik">{C("Dükkanının kayıtlarına ulaşmak için.")}</p>{uyari}
 <form method="post" action="/giris">
-<div class="oge"><label>Kullanıcı adı</label>
+<div class="oge"><label>{C("Kullanıcı adı")}</label>
 <input type="text" name="eposta" value="{kacir(eposta)}" autofocus autocomplete="username"></div>
-<div class="oge">{sifre_alani("sifre", "Şifre", "current-password")}
+<div class="oge">{sifre_alani("sifre", C("Şifre"), "current-password")}
 {SIFRE_GOSTER}</div>
-<button>Gir</button></form>""",
-        alt='Dükkanın burada kayıtlı değil mi? <a href="/kayit">Yeni dükkan aç</a>')
+<button>{C("Gir")}</button></form>""",
+        alt=C('Dükkanın burada kayıtlı değil mi? <a href="/kayit">Yeni dükkan aç</a>')
+            + '<br>'
+            + C('Program ne işe yarıyor? <a href="/tanitim">Tanıtımı gör</a>')
+              .replace('<a href="/tanitim">', f'<a href="/tanitim" onclick="{ac_js}">'),
+        ek=_tanitim_paneli(tanitim_ac))
 
 
 def kayit_sayfasi(hata="", d=None):
@@ -577,22 +666,21 @@ def kayit_sayfasi(hata="", d=None):
         return kacir(d.get(ad, [""])[0] if isinstance(d.get(ad), list) else d.get(ad, ""))
 
     return _kapak("Yeni dükkan", f"""
-<h2>Yeni dükkan aç</h2>
-<p class="alt-baslik">Kayıtların kendi dosyasında tutulur; başka hiçbir dükkan
-onları göremez.</p>{uyari}
+<h2>{C("Yeni dükkan aç")}</h2>
+<p class="alt-baslik">{C("Kayıtların kendi dosyasında tutulur; başka hiçbir dükkan onları göremez.")}</p>{uyari}
 <form method="post" action="/kayit">
-<div class="oge"><label>Dükkanın adı</label>
+<div class="oge"><label>{C("Dükkanın adı")}</label>
 <input type="text" name="dukkan_adi" value="{deger('dukkan_adi')}" autofocus></div>
-<div class="oge"><label>Adın soyadın</label>
+<div class="oge"><label>{C("Adın soyadın")}</label>
 <input type="text" name="ad" value="{deger('ad')}"></div>
-<div class="oge"><label>Kullanıcı adı (girişte bunu yazacaksın)</label>
+<div class="oge"><label>{C("Kullanıcı adı (girişte bunu yazacaksın)")}</label>
 <input type="text" name="eposta" value="{deger('eposta')}" autocomplete="username"></div>
 <div class="oge">
-{sifre_alani("sifre", f"Şifre (en az {hesaplar.EN_KISA_SIFRE} karakter)")}</div>
-<div class="oge">{sifre_alani("sifre2", "Şifre (tekrar)")}
+{sifre_alani("sifre", C("Şifre (en az {n} karakter)", n=hesaplar.EN_KISA_SIFRE))}</div>
+<div class="oge">{sifre_alani("sifre2", C("Şifre (tekrar)"))}
 {SIFRE_GOSTER}</div>
-<button>Dükkanı aç</button></form>""",
-        alt='Hesabın zaten var mı? <a href="/giris">Giriş yap</a>', genislik=430)
+<button>{C("Dükkanı aç")}</button></form>""",
+        alt=C('Hesabın zaten var mı? <a href="/giris">Giriş yap</a>'), genislik=430)
 
 
 def kutu(etiket, deger, renk="mavi", alt="", adres="", ok=""):
@@ -620,25 +708,25 @@ def gun_yaz(metin, gun_adiyla=True):
         gun = datetime.date.fromisoformat(metin)
     except (ValueError, TypeError):
         return metin
-    yazi = f"{gun.day} {AYLAR[gun.month - 1]} {gun.year}"
+    yazi = f"{gun.day} {C(AYLAR[gun.month - 1])} {gun.year}"
     if gun_adiyla:
-        yazi += f" {tahmin_modulu.GUN_ADLARI[gun.weekday()]}"
+        yazi += f" {C(tahmin_modulu.GUN_ADLARI[gun.weekday()])}"
     return yazi
 
 
 def rozetler(kalem):
     yazi = ""
     if kalem["alinir"]:
-        yazi += '<span class="rozet al">alınır</span>'
+        yazi += f'<span class="rozet al">{C("alınır")}</span>'
     if kalem["uretilir"]:
-        yazi += '<span class="rozet ur">üretilir</span>'
+        yazi += f'<span class="rozet ur">{C("üretilir")}</span>'
     if kalem["satilir"]:
-        yazi += '<span class="rozet sat">satılır</span>'
+        yazi += f'<span class="rozet sat">{C("satılır")}</span>'
     if not kalem["takip"]:
-        yazi += '<span class="rozet">stok tutulmaz</span>'
+        yazi += f'<span class="rozet">{C("stok tutulmaz")}</span>'
     if "mevsim_disi" in kalem.keys() and kalem["mevsim_disi"]:
-        yazi += '<span class="rozet">mevsim dışı</span>'
-    return yazi or '<span class="rozet">rolsüz</span>'
+        yazi += f'<span class="rozet">{C("mevsim dışı")}</span>'
+    return yazi or f'<span class="rozet">{C("rolsüz")}</span>'
 
 
 # ---------------------------------------------------------------- kurulum
@@ -650,22 +738,25 @@ def sayfa_kurulum(baglanti, sorgu):
             f'<form method="post" action="/kurulum">'
             f'<input type="hidden" name="sablon" value="{anahtar}">'
             f'<button class="sablon" style="width:100%;text-align:left;cursor:pointer">'
-            f'<b>{kacir(sablon["ad"])}</b>'
-            f'<span class="bos">{kacir(sablon["aciklama"])}</span></button></form>'
+            f'<b>{kacir(C(sablon["ad"]))}</b>'
+            f'<span class="bos">{kacir(C(sablon["aciklama"]))}</span></button></form>'
         )
+    hosgeldin = C("Seçtiğin şablon sana hazır bir malzeme, ürün ve reçete listesi "
+                  "verir. Hepsi örnektir: sonradan <b>Ürün &amp; Malzeme</b> sayfasından "
+                  "silebilir, değiştirebilir, yenisini ekleyebilirsin. Program hiçbir "
+                  "ürünü özel olarak tanımaz.")
     return f"""
-<div class="kart"><h2>Hoş geldin — dükkanını seç</h2>
-<p class="bos">Seçtiğin şablon sana hazır bir malzeme, ürün ve reçete listesi verir.
-Hepsi örnektir: sonradan <b>Ürün &amp; Malzeme</b> sayfasından silebilir, değiştirebilir,
-yenisini ekleyebilirsin. Program hiçbir ürünü özel olarak tanımaz.</p>
+<div class="kart"><h2>{C("Hoş geldin — dükkanını seç")}</h2>
+<p class="bos">{hosgeldin}</p>
 {kartlar}</div>"""
 
 
 def islem_kurulum(baglanti, veri):
     anahtar = veri.get("sablon", [""])[0]
     if veritabani.sablon_uygula(baglanti, anahtar):
-        return "/", f"{veritabani.SABLONLAR[anahtar]['ad']} şablonu yüklendi."
-    return "/kurulum", "Şablon bulunamadı."
+        return "/", C("{ad} şablonu yüklendi.",
+                      ad=veritabani.SABLONLAR[anahtar]['ad'])
+    return "/kurulum", C("Şablon bulunamadı.")
 
 
 # ---------------------------------------------------------------- bugun
@@ -675,10 +766,10 @@ def sayfa_bugun(baglanti, sorgu):
     ozet = hesap.gun_ozeti(baglanti, tarih)
 
     kutular = (
-        kutu("Kasadaki nakit", para(hesap.kasa(baglanti)), "yesil")
-        + kutu("Tedarikçilere borç", para(hesap.borc(baglanti)), "kirmizi")
-        + kutu("Bugünün cirosu", para(ozet["ciro"]), "mavi")
-        + kutu("Bugünün net kârı", para(ozet["net_kar"]),
+        kutu(C("Kasadaki nakit"), para(hesap.kasa(baglanti)), "yesil")
+        + kutu(C("Tedarikçilere borç"), para(hesap.borc(baglanti)), "kirmizi")
+        + kutu(C("Bugünün cirosu"), para(ozet["ciro"]), "mavi")
+        + kutu(C("Bugünün net kârı"), para(ozet["net_kar"]),
                "yesil" if ozet["net_kar"] >= 0 else "kirmizi")
     )
 
@@ -689,9 +780,10 @@ def sayfa_bugun(baglanti, sorgu):
     for kalem in stoklu[:2]:
         alt = ""
         if kalem["koli_adet"] > 0:
-            alt = (f'yaklaşık {mik(kalem["stok"] / kalem["koli_adet"], 1)} '
-                   f'{kacir(kalem["koli_ad"])}')
-        kutular += kutu(f'Hazır {kalem["ad"]}',
+            alt = C("yaklaşık {n} {koli}",
+                    n=mik(kalem["stok"] / kalem["koli_adet"], 1),
+                    koli=kacir(kalem["koli_ad"]))
+        kutular += kutu(f'{C("Hazır")} {kalem["ad"]}',
                         f'{mik(kalem["stok"], 1)} {kacir(kalem["birim"])}', "mavi", alt)
 
     plan = menuler.oneri(baglanti)
@@ -706,33 +798,39 @@ def sayfa_bugun(baglanti, sorgu):
         for satir in liste:
             kalem = satir["kalem"]
             if satir["seviye"] == "bitti":
-                basli = f"{kalem['ad']} BİTTİ"
+                basli = C("{ad} BİTTİ", ad=kalem['ad'])
             elif satir["kalan_gun"] is not None:
-                basli = (f"{kalem['ad']} bitmek üzere — yaklaşık "
-                         f"{mik(satir['kalan_gun'], 1)} günlük kaldı")
+                basli = C("{ad} bitmek üzere — yaklaşık {gun} günlük kaldı",
+                          ad=kalem['ad'], gun=mik(satir['kalan_gun'], 1))
             else:
-                basli = f"{kalem['ad']} kritik seviyenin altında"
-            detay = f"Elde {mik(satir['stok'])} {kacir(kalem['birim'])}"
+                basli = C("{ad} kritik seviyenin altında", ad=kalem['ad'])
+            detay = C("Elde {stok} {birim}",
+                      stok=mik(satir['stok']), birim=kacir(kalem['birim']))
             if satir["gunluk"] > 0:
-                detay += (f" · günde ortalama {mik(satir['gunluk'])} "
-                          f"{kacir(kalem['birim'])} gidiyor")
+                detay += " · " + C("günde ortalama {gunluk} {birim} gidiyor",
+                                   gunluk=mik(satir['gunluk']), birim=kacir(kalem['birim']))
             if satir["parti"]:
                 # Uretilenler tam kazanla: "1 kazan üret (122 kg çıkar)".
                 p = satir["parti"]
-                detay += (f" · <b>{p['sayi']} {kacir(p['parti_ad'])} üret</b> "
-                          f"({mik(p['cikacak'], 1)} {kacir(kalem['birim'])} çıkar, "
-                          f"yaklaşık {para(satir['tutar'])})")
+                detay += (" · <b>"
+                          + C("{sayi} {parti} üret", sayi=p['sayi'],
+                              parti=kacir(p['parti_ad'])) + "</b> "
+                          + C("({cikacak} {birim} çıkar, yaklaşık {tutar})",
+                              cikacak=mik(p['cikacak'], 1),
+                              birim=kacir(kalem['birim']), tutar=para(satir['tutar'])))
             elif satir["onerilen"] > 0:
-                detay += (f" · <b>{mik(satir['onerilen'])} {kacir(kalem['birim'])} "
-                          f"{satir['eylem']}</b> (yaklaşık {para(satir['tutar'])})")
+                detay += (" · <b>"
+                          + C("{miktar} {birim} {eylem}", miktar=mik(satir['onerilen']),
+                              birim=kacir(kalem['birim']), eylem=C(satir['eylem'])) + "</b> "
+                          + C("(yaklaşık {tutar})", tutar=para(satir['tutar'])))
             if kalem["tedarikci"]:
                 detay += f" · {kacir(kalem['tedarikci'])}"
             uyarilar += (f'<div class="uyari {satir["seviye"]}"><b>{kacir(basli)}</b>'
                          f'<div class="detay">{detay}</div></div>')
-        oneri_karti = f'<div class="kart"><h2>Yapman gerekenler</h2>{uyarilar}</div>'
+        oneri_karti = f'<div class="kart"><h2>{C("Yapman gerekenler")}</h2>{uyarilar}</div>'
     else:
-        oneri_karti = ('<div class="kart"><h2>Yapman gerekenler</h2>'
-                       '<p class="bos">Şu an acil bir şey yok, stoklar yeterli.</p></div>')
+        oneri_karti = (f'<div class="kart"><h2>{C("Yapman gerekenler")}</h2>'
+                       f'<p class="bos">{C("Şu an acil bir şey yok, stoklar yeterli.")}</p></div>')
 
     satislar = baglanti.execute(
         "SELECT k.ad, k.birim, SUM(s.miktar) AS miktar, SUM(s.tutar) AS tutar"
@@ -745,12 +843,12 @@ def sayfa_bugun(baglanti, sorgu):
             f"<td class='sag'>{mik(s['miktar'])} {kacir(s['birim'])}</td>"
             f"<td class='sag'>{para(s['tutar'])}</td></tr>" for s in satislar
         )
-        satis_karti = (f'<div class="kart"><h2>Bugün girilen satışlar</h2><table>'
-                       f"<tr><th>Ürün</th><th class='sag'>Miktar</th>"
-                       f"<th class='sag'>Tutar</th></tr>{satirlar}</table></div>")
+        satis_karti = (f'<div class="kart"><h2>{C("Bugün girilen satışlar")}</h2><table>'
+                       f"<tr><th>{C('Ürün')}</th><th class='sag'>{C('Miktar')}</th>"
+                       f"<th class='sag'>{C('Tutar')}</th></tr>{satirlar}</table></div>")
     else:
-        satis_karti = ('<div class="kart"><h2>Bugün girilen satışlar</h2>'
-                       '<p class="bos">Henüz giriş yapılmadı.</p></div>')
+        satis_karti = (f'<div class="kart"><h2>{C("Bugün girilen satışlar")}</h2>'
+                       f'<p class="bos">{C("Henüz giriş yapılmadı.")}</p></div>')
 
     return f'<div class="kutular">{kutular}</div>{oneri_karti}{satis_karti}'
 
@@ -773,7 +871,7 @@ def sayfa_satis_merkezi(baglanti, sorgu):
         ek = f"&tarih={urllib.parse.quote(tarih)}" if tarih else ""
         sekmeler = '<div class="sekmeler">' + "".join(
             f'<a href="/satis?yontem={anahtar}{ek}" '
-            f'class="{"aktif" if anahtar == yontem else ""}">{etiket}</a>'
+            f'class="{"aktif" if anahtar == yontem else ""}">{C(etiket)}</a>'
             for anahtar, etiket in (("sayim", "Rafta kalanı say"),
                                     ("dogrudan", "Tek tek gir"))
         ) + "</div>"
@@ -809,7 +907,7 @@ def _sayim_alani(kalem, onceki):
           if kalem["koli_adet"] > 0 else "")
     return (
         f'<div class="giris-satir"><div class="ad"><b>{kacir(kalem["ad"])}</b>'
-        f'<div class="fiyat">rafta olması gereken: {mik(onceki["stok"])} '
+        f'<div class="fiyat">{C("rafta olması gereken")}: {mik(onceki["stok"])} '
         f'{kacir(kalem["birim"])}{ek}</div></div>'
         f'<div style="white-space:nowrap">{koli_kutusu}'
         f'<input type="number" step="any" min="0" inputmode="decimal" '
@@ -823,9 +921,9 @@ def _bitti_alani(kalem, stok, isaretli):
     kalan_koli = (stok / kalem["koli_adet"]) if kalem["koli_adet"] > 0 else 0
     return (
         f'<div class="giris-satir"><div class="ad"><b>{kacir(kalem["ad"])}</b>'
-        f'<div class="fiyat">elde yaklaşık {mik(kalan_koli, 1)} {kacir(kalem["koli_ad"])} '
+        f'<div class="fiyat">{C("elde yaklaşık")} {mik(kalan_koli, 1)} {kacir(kalem["koli_ad"])} '
         f'({mik(stok)} {kacir(kalem["birim"])})</div></div>'
-        f'{kutucuk("bitti_" + str(kalem["id"]), isaretli, "bir " + kalem["koli_ad"] + " bitti")}'
+        f'{kutucuk("bitti_" + str(kalem["id"]), isaretli, C("bir {koli} bitti", koli=kalem["koli_ad"]))}'
         f'</div>'
     )
 
@@ -879,30 +977,36 @@ def sayfa_satis(baglanti, sorgu):
 
     bolumler = ""
     if satilan_html:
-        bolumler += f"<h3>Satılan ürünler — rafta kalanı yaz</h3>{liste(satilan_html)}"
+        bolumler += f"<h3>{C('Satılan ürünler — rafta kalanı yaz')}</h3>{liste(satilan_html)}"
     if elle_html:
-        bolumler += ('<h3>Miktarı elle girilenler</h3><p class="bos">Bunlar sayımdan '
-                     'bulunamaz, kaç sattığını sen yazarsın.</p>' + liste(elle_html))
+        bolumler += (f'<h3>{C("Miktarı elle girilenler")}</h3><p class="bos">'
+                     + C("Bunlar sayımdan bulunamaz, kaç sattığını sen yazarsın.")
+                     + '</p>' + liste(elle_html))
     if diger_html:
-        bolumler += ('<h3>Diğer sayılanlar</h3><p class="bos">Bunlar satılmıyor ama '
-                     'stokları gerçeğe eşitlensin diye sayılıyor; fark fire yazılır.</p>'
-                     + liste(diger_html))
+        bolumler += (f'<h3>{C("Diğer sayılanlar")}</h3><p class="bos">'
+                     + C("Bunlar satılmıyor ama stokları gerçeğe eşitlensin diye "
+                         "sayılıyor; fark fire yazılır.")
+                     + '</p>' + liste(diger_html))
     if sarf_html:
-        bolumler += ('<h3>Verilen malzemeler</h3><p class="bos">Bunlar tek tek sayılmıyor. '
-                     'O gün bir kolisi bittiyse işaretle; program bir koli düşer ve '
-                     'tutarını günün satışlarına paylaştırır.</p>' + liste(sarf_html))
+        bolumler += (f'<h3>{C("Verilen malzemeler")}</h3><p class="bos">'
+                     + C("Bunlar tek tek sayılmıyor. O gün bir kolisi bittiyse işaretle; "
+                         "program bir koli düşer ve tutarını günün satışlarına paylaştırır.")
+                     + '</p>' + liste(sarf_html))
     if not bolumler:
-        bolumler = ('<p class="bos">Sayılacak kalem yok. <b>Ürün &amp; Malzeme</b> '
-                    'sayfasından kalemlerin "gün sonu sayımı" ayarını doldur.</p>')
+        bolumler = (f'<p class="bos">'
+                    + C('Sayılacak kalem yok. <b>Ürün &amp; Malzeme</b> sayfasından '
+                        'kalemlerin "gün sonu sayımı" ayarını doldur.') + '</p>')
 
+    ana_aciklama = C("Kapanışta rafta ne kaldığını yaz. Program kaç sattığını, ciroyu "
+                     "ve kârı kendisi hesaplar. Malzeme aldıysan <b>önce</b> Alım "
+                     "sayfasından gir, sonra buradan say.")
     return f"""
-<div class="kart"><h2>Gün sonu sayımı</h2>
-<p class="bos">Kapanışta rafta ne kaldığını yaz. Program kaç sattığını, ciroyu ve kârı
-kendisi hesaplar. Malzeme aldıysan <b>önce</b> Alım sayfasından gir, sonra buradan say.</p>
+<div class="kart"><h2>{C("Gün sonu sayımı")}</h2>
+<p class="bos">{ana_aciklama}</p>
 <form method="post" action="/satis">
 <div style="max-width:320px;margin-bottom:14px">{tarih_alani(tarih)}</div>
 {bolumler}
-<div style="margin-top:20px"><button>Sayımı kaydet ve hesapla</button></div>
+<div style="margin-top:20px"><button>{C("Sayımı kaydet ve hesapla")}</button></div>
 </form></div>
 {_sayim_sonucu(baglanti, tarih, sayim)}"""
 
@@ -922,7 +1026,7 @@ def _sayim_sonucu(baglanti, tarih, sayim):
         f"<td class='sag'>{para(k['tutar'])}</td>"
         f"<td class='sag'>{para(k['tutar'] - k['maliyet'])}</td></tr>"
         for k in kayitlar
-    ) or "<tr><td class='bos' colspan='4'>Hiçbir şey satılmamış görünüyor.</td></tr>"
+    ) or f"<tr><td class='bos' colspan='4'>{C('Hiçbir şey satılmamış görünüyor.')}</td></tr>"
     ozet = hesap.gun_ozeti(baglanti, tarih)
 
     # Buyuk bir stok farki sessizce fire yazilmamali, gozune sokulmali.
@@ -938,35 +1042,38 @@ def _sayim_sonucu(baglanti, tarih, sayim):
             continue
         miktar = mik(abs(fark["miktar"]), 1)
         if fark["miktar"] < 0:
-            uyarilar += (
-                f'<div class="uyari acil"><b>{kacir(fark["ad"])} sayımı {miktar} '
-                f'{kacir(fark["birim"])} eksik çıktı</b><div class="detay">Bu miktar fire '
-                f'olarak yazıldı ve kâra yansımadı. Fire, ikram ya da kaplara fazla '
-                f'konulmuş olabilir. Sürekli aynı yönde çıkıyorsa reçetedeki miktarı '
-                f'düzelt.</div></div>')
+            baslik = C("{ad} sayımı {miktar} {birim} eksik çıktı",
+                       ad=kacir(fark["ad"]), miktar=miktar, birim=kacir(fark["birim"]))
+            aciklama = C("Bu miktar fire olarak yazıldı ve kâra yansımadı. Fire, ikram "
+                         "ya da kaplara fazla konulmuş olabilir. Sürekli aynı yönde "
+                         "çıkıyorsa reçetedeki miktarı düzelt.")
+            uyarilar += (f'<div class="uyari acil"><b>{baslik}</b>'
+                         f'<div class="detay">{aciklama}</div></div>')
         else:
-            uyarilar += (
-                f'<div class="uyari yakin"><b>{kacir(fark["ad"])} sayımı {miktar} '
-                f'{kacir(fark["birim"])} fazla çıktı</b><div class="detay">Kayıtta '
-                f'olması gerekenden fazla var. Üretim ya da alım girmeyi unutmuş '
-                f'olabilirsin.</div></div>')
+            baslik = C("{ad} sayımı {miktar} {birim} fazla çıktı",
+                       ad=kacir(fark["ad"]), miktar=miktar, birim=kacir(fark["birim"]))
+            aciklama = C("Kayıtta olması gerekenden fazla var. Üretim ya da alım "
+                         "girmeyi unutmuş olabilirsin.")
+            uyarilar += (f'<div class="uyari yakin"><b>{baslik}</b>'
+                         f'<div class="detay">{aciklama}</div></div>')
 
     sarf_notu = ""
     if ozet["sarf_maliyeti"] > 0:
-        sarf_notu = (f'<p class="bos" style="margin-top:12px">Satılmayan malzemeler için '
-                     f'{para(ozet["sarf_maliyeti"])} harcanmış; bu tutar yukarıdaki '
-                     f'kârlardan düşülmüş durumda.</p>')
+        sarf_notu = (f'<p class="bos" style="margin-top:12px">'
+                     + C("Satılmayan malzemeler için {tutar} harcanmış; bu tutar "
+                         "yukarıdaki kârlardan düşülmüş durumda.",
+                         tutar=para(ozet["sarf_maliyeti"])) + '</p>')
 
     return f"""
-<div class="kart"><h2>{kacir(tarih)} — sayımdan hesaplananlar</h2>{uyarilar}<table>
-<tr><th>Ürün</th><th class='sag'>Satılan</th><th class='sag'>Ciro</th><th class='sag'>Kâr</th></tr>
+<div class="kart"><h2>{C("{tarih} — sayımdan hesaplananlar", tarih=kacir(tarih))}</h2>{uyarilar}<table>
+<tr><th>{C('Ürün')}</th><th class='sag'>{C('Satılan')}</th><th class='sag'>{C('Ciro')}</th><th class='sag'>{C('Kâr')}</th></tr>
 {satirlar}
-<tr><th>TOPLAM</th><th></th><th class='sag'>{para(ozet['ciro'])}</th>
+<tr><th>{C('TOPLAM')}</th><th></th><th class='sag'>{para(ozet['ciro'])}</th>
 <th class='sag'>{para(ozet['brut_kar'])}</th></tr>
 </table>{sarf_notu}
 <form method="post" action="/sayim-sil" style="margin-top:10px">
 <input type="hidden" name="tarih" value="{kacir(tarih)}">
-<button class="sil">Bu günün sayımını sil ve baştan gir</button></form></div>"""
+<button class="sil">{C("Bu günün sayımını sil ve baştan gir")}</button></form></div>"""
 
 
 # ---------------------------------------------------------------- dogrudan satis
@@ -980,7 +1087,9 @@ def sayfa_satis_giris(baglanti, sorgu):
     for kalem in urunler:
         stok_notu = ""
         if kalem["takip"]:
-            stok_notu = f' · elde {mik(stok.get(kalem["id"], 0.0))} {kacir(kalem["birim"])}'
+            stok_notu = " · " + C("elde {stok} {birim}",
+                                  stok=mik(stok.get(kalem["id"], 0.0)),
+                                  birim=kacir(kalem["birim"]))
         satirlar += (
             f'<div class="giris-satir"><div class="ad"><b>{kacir(kalem["ad"])}</b>'
             f'<div class="fiyat">{para(kalem["fiyat"])} / {kacir(kalem["birim"])}'
@@ -991,8 +1100,9 @@ def sayfa_satis_giris(baglanti, sorgu):
     if satirlar:
         satirlar = f'<div class="giris-liste">{satirlar}</div>'
     else:
-        satirlar = ('<p class="bos">Satılacak ürün yok. <b>Ürün &amp; Malzeme</b> '
-                    'sayfasından bir kaleme "satılır" işareti koy.</p>')
+        satirlar = ('<p class="bos">'
+                    + C('Satılacak ürün yok. <b>Ürün &amp; Malzeme</b> sayfasından '
+                        'bir kaleme "satılır" işareti koy.') + '</p>')
 
     gunun = baglanti.execute(
         "SELECT s.id, s.miktar, s.tutar, s.maliyet, k.ad, k.birim FROM satislar s"
@@ -1006,20 +1116,21 @@ def sayfa_satis_giris(baglanti, sorgu):
         f"<td class='sag'>{para(s['tutar'] - s['maliyet'])}</td>"
         f"<td class='sag'>{_sil_dugmesi('satis', s['id'], _dogrudan_adres(tarih))}</td></tr>"
         for s in gunun
-    ) or "<tr><td class='bos' colspan='5'>Bu tarihe satış girilmemiş.</td></tr>"
+    ) or f"<tr><td class='bos' colspan='5'>{C('Bu tarihe satış girilmemiş.')}</td></tr>"
 
+    giris_aciklama = C("Sattığın kadarını yaz — tek tek de girebilirsin, gün sonunda "
+                       "toplu da. Ürünün reçetesi varsa malzemeler stoktan otomatik düşer.")
     return f"""
-<div class="kart"><h2>Satış girişi</h2>
-<p class="bos">Sattığın kadarını yaz — tek tek de girebilirsin, gün sonunda toplu da.
-Ürünün reçetesi varsa malzemeler stoktan otomatik düşer.</p>
+<div class="kart"><h2>{C("Satış girişi")}</h2>
+<p class="bos">{giris_aciklama}</p>
 <form method="post" action="/satis-giris">
 <div style="max-width:320px;margin-bottom:14px">{tarih_alani(tarih)}</div>
 {satirlar}
-<div style="margin-top:20px"><button>Satışları kaydet</button></div></form></div>
+<div style="margin-top:20px"><button>{C("Satışları kaydet")}</button></div></form></div>
 
-<div class="kart"><h2>{kacir(tarih)} satışları</h2><table>
-<tr><th>Ürün</th><th class='sag'>Miktar</th><th class='sag'>Tutar</th>
-<th class='sag'>Kâr</th><th></th></tr>
+<div class="kart"><h2>{C("{tarih} satışları", tarih=kacir(tarih))}</h2><table>
+<tr><th>{C('Ürün')}</th><th class='sag'>{C('Miktar')}</th><th class='sag'>{C('Tutar')}</th>
+<th class='sag'>{C('Kâr')}</th><th></th></tr>
 {kayit_satirlari}</table></div>"""
 
 
@@ -1028,7 +1139,7 @@ def _sil_dugmesi(tur, kayit_id, donus):
             f"<input type='hidden' name='tur' value='{tur}'>"
             f"<input type='hidden' name='id' value='{kayit_id}'>"
             f"<input type='hidden' name='donus' value='{kacir(donus)}'>"
-            f"<button class='sil'>sil</button></form>")
+            f"<button class='sil'>{C('sil')}</button></form>")
 
 
 # ---------------------------------------------------------------- uretim
@@ -1048,25 +1159,26 @@ def sayfa_uretim(baglanti, sorgu):
         parti = kapasiteler[r["id"]]["parti"]
         durum = ""
         if parti is not None:
-            durum = (" — MALZEME YOK" if parti < 1
-                     else f" — en fazla {mik(parti, 1)} parti")
+            durum = (" — " + C("MALZEME YOK") if parti < 1
+                     else " — " + C("en fazla {n} parti", n=mik(parti, 1)))
         secenekler.append((
             r["id"],
             f"{r['urun_ad']}{' - ' + r['ad'] if r['ad'] else ''}"
             f" (1 {r['parti_ad']} = {mik(r['verim'])} {r['birim']}){durum}"))
 
     if not secenekler:
-        giris = ('<p class="bos">Üretilen ürün yok. <b>Ürün &amp; Malzeme</b> sayfasından '
-                 'bir kaleme "üretilir" işareti koyup reçetesini yaz.</p>')
+        giris = ('<p class="bos">'
+                 + C('Üretilen ürün yok. <b>Ürün &amp; Malzeme</b> sayfasından bir '
+                     'kaleme "üretilir" işareti koyup reçetesini yaz.') + '</p>')
     else:
         giris = f"""
 <form method="post" action="/uretim">
 <div class="satir">
   <div>{tarih_alani(tarih)}</div>
-  <div><label>Ne üretildi</label>{secim("recete_id", secenekler)}</div>
-  <div><label>Kaç parti</label>{sayi_alani("adet", "1", min="0")}</div>
+  <div><label>{C("Ne üretildi")}</label>{secim("recete_id", secenekler)}</div>
+  <div><label>{C("Kaç parti")}</label>{sayi_alani("adet", "1", min="0")}</div>
 </div>
-<button>Üretimi kaydet</button></form>"""
+<button>{C("Üretimi kaydet")}</button></form>"""
 
     kayitlar = baglanti.execute(
         "SELECT u.id, u.sayi, u.miktar, u.maliyet, k.ad AS urun_ad, k.birim,"
@@ -1079,24 +1191,26 @@ def sayfa_uretim(baglanti, sorgu):
         satirlar = "".join(
             f"<tr><td>{kacir(k['urun_ad'])}"
             f"{' - ' + kacir(k['recete_ad']) if k['recete_ad'] else ''}</td>"
-            f"<td class='sag'>{mik(k['sayi'])} {kacir(k['parti_ad'] or 'parti')}</td>"
+            f"<td class='sag'>{mik(k['sayi'])} {kacir(k['parti_ad'] or C('parti'))}</td>"
             f"<td class='sag'>{mik(k['miktar'], 1)} {kacir(k['birim'])}</td>"
             f"<td class='sag'>{para(k['maliyet'])}</td>"
             f"<td class='sag'>{_sil_dugmesi('uretim', k['id'], '/uretim?tarih=' + tarih)}</td></tr>"
             for k in kayitlar
         )
-        kayit_karti = (f'<div class="kart"><h2>{kacir(tarih)} üretimi</h2><table>'
-                       f"<tr><th>Ürün</th><th class='sag'>Kaç parti</th>"
-                       f"<th class='sag'>Çıkan</th><th class='sag'>Malzeme maliyeti</th>"
+        kayit_karti = (f'<div class="kart"><h2>{C("{tarih} üretimi", tarih=kacir(tarih))}</h2><table>'
+                       f"<tr><th>{C('Ürün')}</th><th class='sag'>{C('Kaç parti')}</th>"
+                       f"<th class='sag'>{C('Çıkan')}</th><th class='sag'>{C('Malzeme maliyeti')}</th>"
                        f"<th></th></tr>{satirlar}</table></div>")
     else:
-        kayit_karti = (f'<div class="kart"><h2>{kacir(tarih)} üretimi</h2>'
-                       '<p class="bos">Bu tarihe üretim girilmemiş.</p></div>')
+        kayit_karti = (f'<div class="kart"><h2>{C("{tarih} üretimi", tarih=kacir(tarih))}</h2>'
+                       f'<p class="bos">{C("Bu tarihe üretim girilmemiş.")}</p></div>')
 
+    uretim_aciklama = C("Kaç parti yaptığını yaz; reçetedeki malzemeler stoktan "
+                        "otomatik düşer, çıkan ürün stoğa girer. Malzeme yetmiyorsa "
+                        "program üretimi kaydetmez.")
     return f"""
-<div class="kart"><h2>Üretim girişi</h2>
-<p class="bos">Kaç parti yaptığını yaz; reçetedeki malzemeler stoktan otomatik düşer,
-çıkan ürün stoğa girer. Malzeme yetmiyorsa program üretimi kaydetmez.</p>{giris}</div>
+<div class="kart"><h2>{C("Üretim girişi")}</h2>
+<p class="bos">{uretim_aciklama}</p>{giris}</div>
 {_kapasite_karti(baglanti, receteler, kapasiteler)}
 {kayit_karti}"""
 
@@ -1112,29 +1226,31 @@ def _kapasite_karti(baglanti, receteler, kapasiteler):
         parti = kapasite["parti"]
         ad = f"{recete['urun_ad']}{' - ' + recete['ad'] if recete['ad'] else ''}"
         if parti is None:
-            durum = "<span class='gri'>stok takibi yok, sınırsız</span>"
+            durum = f"<span class='gri'>{C('stok takibi yok, sınırsız')}</span>"
             kisit = "—"
         elif parti < 1:
             bitenler += 1
-            durum = "<b class='kirmizi'>üretilemez</b>"
-            kisit = f"{kacir(kapasite['kisit'])} bitti"
+            durum = f"<b class='kirmizi'>{C('üretilemez')}</b>"
+            kisit = C("{kisit} bitti", kisit=kacir(kapasite['kisit']))
         else:
             renk = "yesil" if parti >= 2 else "mavi"
             durum = (f"<b class='{renk}'>{mik(parti, 1)} "
                      f"{kacir(recete['parti_ad'])}</b>")
-            kisit = f"önce {kacir(kapasite['kisit'])} biter"
+            kisit = C("önce {kisit} biter", kisit=kacir(kapasite['kisit']))
         satirlar += (f"<tr><td>{kacir(ad)}</td><td class='sag'>{durum}</td>"
                      f"<td>{kisit}</td></tr>")
 
     uyari = ""
     if bitenler:
-        uyari = (f'<div class="uyari bitti"><b>{bitenler} ürün şu an üretilemiyor</b>'
-                 f'<div class="detay">Malzemesi bitmiş. <a href="/para">Alım / Gider</a> '
-                 f'sayfasından eksik malzemeyi girince buradan üretebilirsin.</div></div>')
+        detay = C('Malzemesi bitmiş. <a href="/para">Alım / Gider</a> sayfasından '
+                  'eksik malzemeyi girince buradan üretebilirsin.')
+        uyari = (f'<div class="uyari bitti"><b>'
+                 + C("{n} ürün şu an üretilemiyor", n=bitenler)
+                 + f'</b><div class="detay">{detay}</div></div>')
 
-    return (f'<div class="kart"><h2>Eldeki malzemeyle ne kadar üretebilirsin</h2>{uyari}'
-            f'<table><tr><th>Ürün</th><th class="sag">En fazla</th>'
-            f'<th>Sınırlayan malzeme</th></tr>{satirlar}</table></div>')
+    return (f'<div class="kart"><h2>{C("Eldeki malzemeyle ne kadar üretebilirsin")}</h2>{uyari}'
+            f'<table><tr><th>{C("Ürün")}</th><th class="sag">{C("En fazla")}</th>'
+            f'<th>{C("Sınırlayan malzeme")}</th></tr>{satirlar}</table></div>')
 
 
 # ---------------------------------------------------------------- stok
@@ -1152,10 +1268,10 @@ def sayfa_stok(baglanti, sorgu):
         for kalem in grup:
             if not kalem["takip"]:
                 satirlar += (f"<tr><td>{kacir(kalem['ad'])}</td>"
-                             f"<td class='sag gri' colspan='4'>stok tutulmuyor</td></tr>")
+                             f"<td class='sag gri' colspan='4'>{C('stok tutulmuyor')}</td></tr>")
                 continue
             gunluk = hesap.gunluk_tuketim(baglanti, kalem["id"], ortalama_gun)
-            kalan = f"{mik(kalem['stok'] / gunluk, 1)} gün" if gunluk > 0 else "—"
+            kalan = (C("{n} gün", n=mik(kalem['stok'] / gunluk, 1)) if gunluk > 0 else "—")
             renk = ""
             if kalem["stok"] <= 0:
                 renk = ' style="color:#c1392b;font-weight:600"'
@@ -1171,26 +1287,28 @@ def sayfa_stok(baglanti, sorgu):
             )
 
     duzeltme_gruplari = [
-        (baslik, [(k["id"], f"{k['ad']} (kayıtta {mik(k['stok'])} {k['birim']})")
+        (baslik, [(k["id"], C("{ad} (kayıtta {stok} {birim})",
+                              ad=k['ad'], stok=mik(k['stok']), birim=k['birim']))
                   for k in grup if k["takip"]])
         for baslik, grup in hesap.ture_gore(liste)
     ]
     duzeltme_gruplari = [ikili for ikili in duzeltme_gruplari if ikili[1]]
 
+    duzeltme_aciklama = C("Elle saydığında gerçek miktarı buraya yaz; program farkı "
+                          "fire olarak kaydeder ve stoğu gerçeğe eşitler.")
     return f"""
-<div class="kutular">{kutu("Stoğun toplam değeri", para(toplam_deger), "mavi")}</div>
-<div class="kart"><h2>Stoklar</h2><table>
-<tr><th>Kalem</th><th class='sag'>Eldeki</th><th class='sag'>Kritik</th>
-<th class='sag'>Kaç gün yeter</th><th class='sag'>Değeri</th></tr>
+<div class="kutular">{kutu(C("Stoğun toplam değeri"), para(toplam_deger), "mavi")}</div>
+<div class="kart"><h2>{C("Stoklar")}</h2><table>
+<tr><th>{C("Kalem")}</th><th class='sag'>{C("Eldeki")}</th><th class='sag'>{C("Kritik")}</th>
+<th class='sag'>{C("Kaç gün yeter")}</th><th class='sag'>{C("Değeri")}</th></tr>
 {satirlar}</table></div>
 
-<div class="kart"><h2>Sayım düzeltmesi</h2>
-<p class="bos">Elle saydığında gerçek miktarı buraya yaz; program farkı fire olarak
-kaydeder ve stoğu gerçeğe eşitler.</p>
+<div class="kart"><h2>{C("Sayım düzeltmesi")}</h2>
+<p class="bos">{duzeltme_aciklama}</p>
 <form method="post" action="/stok-duzelt"><div class="satir">
-<div><label>Kalem</label>{gruplu_secim("kalem_id", duzeltme_gruplari)}</div>
-<div><label>Gerçekte ne kadar var</label>{sayi_alani("miktar", min="0")}</div>
-</div><button class="ikincil">Stoğu düzelt</button></form></div>"""
+<div><label>{C("Kalem")}</label>{gruplu_secim("kalem_id", duzeltme_gruplari)}</div>
+<div><label>{C("Gerçekte ne kadar var")}</label>{sayi_alani("miktar", min="0")}</div>
+</div><button class="ikincil">{C("Stoğu düzelt")}</button></form></div>"""
 
 
 # ---------------------------------------------------------------- alim / gider
@@ -1204,12 +1322,12 @@ def sayfa_para(baglanti, sorgu):
     ]
 
     borclar = hesap.borc_dagilimi(baglanti)
-    borc_secenek = [(b["tedarikci"], f"{b['tedarikci'] or 'Belirtilmemiş'} — {para(b['tutar'])}")
-                    for b in borclar] or [("", "Borç yok")]
+    borc_secenek = [(b["tedarikci"], f"{b['tedarikci'] or C('Belirtilmemiş')} — {para(b['tutar'])}")
+                    for b in borclar] or [("", C("Borç yok"))]
     borc_satirlari = "".join(
-        f"<tr><td>{kacir(b['tedarikci'] or 'Belirtilmemiş')}</td>"
+        f"<tr><td>{kacir(b['tedarikci'] or C('Belirtilmemiş'))}</td>"
         f"<td class='sag'>{para(b['tutar'])}</td></tr>" for b in borclar
-    ) or "<tr><td class='bos' colspan='2'>Borcun yok.</td></tr>"
+    ) or f"<tr><td class='bos' colspan='2'>{C('Borcun yok.')}</td></tr>"
 
     son_alimlar = baglanti.execute(
         "SELECT a.id, a.tarih, a.miktar, a.tutar, a.odeme, k.ad, k.birim FROM alimlar a"
@@ -1219,20 +1337,21 @@ def sayfa_para(baglanti, sorgu):
         f"<tr><td>{kacir(a['tarih'])}</td><td>{kacir(a['ad'])}</td>"
         f"<td class='sag'>{mik(a['miktar'])} {kacir(a['birim'])}</td>"
         f"<td class='sag'>{para(a['tutar'])}</td>"
-        f"<td>{'peşin' if a['odeme'] == 'pesin' else 'veresiye'}</td>"
+        f"<td>{C('peşin') if a['odeme'] == 'pesin' else C('veresiye')}</td>"
         f"<td class='sag'>{_sil_dugmesi('alim', a['id'], '/para')}</td></tr>"
         for a in son_alimlar
-    ) or "<tr><td class='bos' colspan='6'>Henüz alım girilmemiş.</td></tr>"
+    ) or f"<tr><td class='bos' colspan='6'>{C('Henüz alım girilmemiş.')}</td></tr>"
 
     # Karta girmeden kadronun durumu gorunsun; maasi yazilmamis ay varsa uyarsin.
     kadro = hesap.calisanlar(baglanti)
     yuk = hesap.aylik_maas_yuku(baglanti)
     if not kadro:
-        calisan_ozeti = "Henüz çalışan girilmemiş"
+        calisan_ozeti = C("Henüz çalışan girilmemiş")
     else:
-        calisan_ozeti = f"{len(kadro)} kişi — aylık {para(yuk['toplam'])} maaş yükü"
+        calisan_ozeti = C("{n} kişi — aylık {tutar} maaş yükü",
+                          n=len(kadro), tutar=para(yuk['toplam']))
         if not hesap.maas_yazildi_mi(baglanti, tarih[:7]):
-            calisan_ozeti += " · bu ayın maaşı henüz yazılmadı"
+            calisan_ozeti += " · " + C("bu ayın maaşı henüz yazılmadı")
 
     son_giderler = baglanti.execute(
         "SELECT id, tarih, aciklama, tutar FROM giderler ORDER BY id DESC LIMIT 10"
@@ -1242,58 +1361,57 @@ def sayfa_para(baglanti, sorgu):
         f"<td class='sag'>{para(g['tutar'])}</td>"
         f"<td class='sag'>{_sil_dugmesi('gider', g['id'], '/para')}</td></tr>"
         for g in son_giderler
-    ) or "<tr><td class='bos' colspan='4'>Henüz gider girilmemiş.</td></tr>"
+    ) or f"<tr><td class='bos' colspan='4'>{C('Henüz gider girilmemiş.')}</td></tr>"
 
+    para_ad = kacir(para_birimi())
     return f"""
 <div class="kutular">
-{kutu("Kasadaki nakit", para(hesap.kasa(baglanti)), "yesil")}
-{kutu("Toplam borç", para(hesap.borc(baglanti)), "kirmizi")}
+{kutu(C("Kasadaki nakit"), para(hesap.kasa(baglanti)), "yesil")}
+{kutu(C("Toplam borç"), para(hesap.borc(baglanti)), "kirmizi")}
 </div>
 
-<div class="kart"><h2>Malzeme alımı</h2>
-<p class="bos">Koli/çuval ile aldıysan "kaç koli" kutusuna yaz, program adede çevirir.</p>
+<div class="kart"><h2>{C("Malzeme alımı")}</h2>
+<p class="bos">{C('Koli/çuval ile aldıysan "kaç koli" kutusuna yaz, program adede çevirir.')}</p>
 <form method="post" action="/alim"><div class="satir">
 <div>{tarih_alani(tarih)}</div>
-<div><label>Kalem</label>{gruplu_secim("kalem_id", alim_gruplari)}</div>
-<div><label>Kaç koli / çuval</label>{sayi_alani("koli", min="0")}</div>
-<div><label>Üstüne kaç birim</label>{sayi_alani("miktar", min="0")}</div>
-<div><label>Ödenecek tutar ({kacir(para_birimi())})</label>{sayi_alani("tutar", min="0")}</div>
-<div><label>Ödeme</label>{secim("odeme", [("veresiye", "Veresiye (borca yazılsın)"),
-                                          ("pesin", "Peşin (kasadan çıksın)")])}</div>
-</div><button>Alımı kaydet</button></form></div>
+<div><label>{C("Kalem")}</label>{gruplu_secim("kalem_id", alim_gruplari)}</div>
+<div><label>{C("Kaç koli / çuval")}</label>{sayi_alani("koli", min="0")}</div>
+<div><label>{C("Üstüne kaç birim")}</label>{sayi_alani("miktar", min="0")}</div>
+<div><label>{C("Ödenecek tutar ({para})", para=para_ad)}</label>{sayi_alani("tutar", min="0")}</div>
+<div><label>{C("Ödeme")}</label>{secim("odeme", [("veresiye", C("Veresiye (borca yazılsın)")),
+                                          ("pesin", C("Peşin (kasadan çıksın)"))])}</div>
+</div><button>{C("Alımı kaydet")}</button></form></div>
 
-<div class="kart"><h2>Çalışanlar</h2>
-<p class="bos">Kimler çalışıyor, maaşları ne kadar. Ay başında hepsinin maaşını
-tek tuşla gidere yazdırmak için burası — tek tek girmene gerek yok.</p>
+<div class="kart"><h2>{C("Çalışanlar")}</h2>
+<p class="bos">{C("Kimler çalışıyor, maaşları ne kadar. Ay başında hepsinin maaşını tek tuşla gidere yazdırmak için burası — tek tek girmene gerek yok.")}</p>
 <p style="margin:12px 0 0"><a class="sablon" href="/calisanlar">
-<b>Çalışanlar sayfasını aç</b>
+<b>{C("Çalışanlar sayfasını aç")}</b>
 {calisan_ozeti}</a></p></div>
 
-<div class="kart"><h2>Gider</h2>
-<p class="bos">Kira, elektrik, personel, yakıt gibi malzeme dışı harcamalar.
-Maaşlar için yukarıdaki Çalışanlar sayfasını kullan.</p>
+<div class="kart"><h2>{C("Gider")}</h2>
+<p class="bos">{C("Kira, elektrik, personel, yakıt gibi malzeme dışı harcamalar. Maaşlar için yukarıdaki Çalışanlar sayfasını kullan.")}</p>
 <form method="post" action="/gider"><div class="satir">
 <div>{tarih_alani(tarih)}</div>
-<div><label>Açıklama</label><input type="text" name="aciklama" placeholder="Elektrik faturası"></div>
-<div><label>Tutar ({kacir(para_birimi())})</label>{sayi_alani("tutar", min="0")}</div>
-</div><button>Gideri kaydet</button></form></div>
+<div><label>{C("Açıklama")}</label><input type="text" name="aciklama" placeholder="{C('Elektrik faturası')}"></div>
+<div><label>{C("Tutar ({para})", para=para_ad)}</label>{sayi_alani("tutar", min="0")}</div>
+</div><button>{C("Gideri kaydet")}</button></form></div>
 
-<div class="kart"><h2>Tedarikçiye ödeme</h2>
+<div class="kart"><h2>{C("Tedarikçiye ödeme")}</h2>
 <form method="post" action="/odeme"><div class="satir">
 <div>{tarih_alani(tarih)}</div>
-<div><label>Tedarikçi</label>{secim("tedarikci", borc_secenek)}</div>
-<div><label>Ödenen tutar ({kacir(para_birimi())})</label>{sayi_alani("tutar", min="0")}</div>
-</div><button>Ödemeyi kaydet</button></form></div>
+<div><label>{C("Tedarikçi")}</label>{secim("tedarikci", borc_secenek)}</div>
+<div><label>{C("Ödenen tutar ({para})", para=para_ad)}</label>{sayi_alani("tutar", min="0")}</div>
+</div><button>{C("Ödemeyi kaydet")}</button></form></div>
 
-<div class="kart"><h2>Kime ne kadar borçlusun</h2><table>{borc_satirlari}</table></div>
+<div class="kart"><h2>{C("Kime ne kadar borçlusun")}</h2><table>{borc_satirlari}</table></div>
 
-<div class="kart"><h2>Son alımlar</h2><table>
-<tr><th>Tarih</th><th>Kalem</th><th class='sag'>Miktar</th><th class='sag'>Tutar</th>
-<th>Ödeme</th><th></th></tr>
+<div class="kart"><h2>{C("Son alımlar")}</h2><table>
+<tr><th>{C("Tarih")}</th><th>{C("Kalem")}</th><th class='sag'>{C("Miktar")}</th><th class='sag'>{C("Tutar")}</th>
+<th>{C("Ödeme")}</th><th></th></tr>
 {alim_satirlari}</table></div>
 
-<div class="kart"><h2>Son giderler</h2><table>
-<tr><th>Tarih</th><th>Açıklama</th><th class='sag'>Tutar</th><th></th></tr>
+<div class="kart"><h2>{C("Son giderler")}</h2><table>
+<tr><th>{C("Tarih")}</th><th>{C("Açıklama")}</th><th class='sag'>{C("Tutar")}</th><th></th></tr>
 {gider_satirlari}</table></div>"""
 
 
@@ -1309,37 +1427,38 @@ def _calisan_formu(kisi=None):
     sayi_d = (lambda alan: f"{kisi[alan]:g}" if kisi and kisi[alan] else "")
     gizli = (f'<input type="hidden" name="id" value="{kisi["id"]}">' if kisi else "")
     adres = "/calisan-kaydet" if kisi else "/calisan-ekle"
-    dugme = "Değişikliği kaydet" if kisi else "Çalışanı ekle"
-    oneriler = "".join(f'<option value="{kacir(g)}">' for g in GOREVLER)
+    dugme = C("Değişikliği kaydet") if kisi else C("Çalışanı ekle")
+    oneriler = "".join(f'<option value="{kacir(C(g))}">' for g in GOREVLER)
+    para_ad = kacir(para_birimi())
 
     ayrilis = ""
     if kisi:
-        ayrilis = (f'<div><label>Ayrılış tarihi</label>'
+        ayrilis_not = C('Doldurursan listede "ayrıldı" görünür ve maaşı bir daha yazılmaz.')
+        ayrilis = (f'<div><label>{C("Ayrılış tarihi")}</label>'
                    f'<input type="date" name="ayrilis" value="{d("ayrilis")}">'
-                   f'<div class="bos" style="font-size:13px">Doldurursan listede '
-                   f'"ayrıldı" görünür ve maaşı bir daha yazılmaz.</div></div>')
+                   f'<div class="bos" style="font-size:13px">{ayrilis_not}</div></div>')
 
     return f"""<form method="post" action="{adres}">{gizli}
 <div class="satir">
-<div><label>Adı soyadı</label><input type="text" name="ad" value="{d('ad')}"
- placeholder="Ahmet Yılmaz" required></div>
-<div><label>Görevi</label><input type="text" name="gorev" value="{d('gorev')}"
- list="gorevler" placeholder="Tezgâhtar"><datalist id="gorevler">{oneriler}</datalist></div>
-<div><label>Telefon</label><input type="text" name="telefon" value="{d('telefon')}"
+<div><label>{C("Adı soyadı")}</label><input type="text" name="ad" value="{d('ad')}"
+ placeholder="{C('Ahmet Yılmaz')}" required></div>
+<div><label>{C("Görevi")}</label><input type="text" name="gorev" value="{d('gorev')}"
+ list="gorevler" placeholder="{C('Tezgâhtar')}"><datalist id="gorevler">{oneriler}</datalist></div>
+<div><label>{C("Telefon")}</label><input type="text" name="telefon" value="{d('telefon')}"
  placeholder="0555 111 22 33"></div>
 </div>
 <div class="satir">
-<div><label>Eline geçen aylık maaş ({kacir(para_birimi())})</label>
+<div><label>{C("Eline geçen aylık maaş ({para})", para=para_ad)}</label>
 {sayi_alani("maas", sayi_d("maas"), min="0")}</div>
-<div><label>Üstüne SGK + vergi ({kacir(para_birimi())})</label>
+<div><label>{C("Üstüne SGK + vergi ({para})", para=para_ad)}</label>
 {sayi_alani("sgk", sayi_d("sgk"), min="0")}</div>
-<div><label>İşe giriş tarihi</label>
+<div><label>{C("İşe giriş tarihi")}</label>
 <input type="date" name="baslangic" value="{d('baslangic')}"></div>
 {ayrilis}
 </div>
 <div class="satir">
-<div><label>Not</label><input type="text" name="notlar" value="{d('notlar')}"
- placeholder="Hafta sonları geliyor"></div>
+<div><label>{C("Not")}</label><input type="text" name="notlar" value="{d('notlar')}"
+ placeholder="{C('Hafta sonları geliyor')}"></div>
 </div>
 <button>{dugme}</button></form>"""
 
@@ -1358,9 +1477,9 @@ def sayfa_calisanlar(baglanti, sorgu):
     for k in liste:
         toplam = (k["maas"] or 0) + (k["sgk"] or 0)
         if k["aktif"]:
-            durum = "<span class='yesil'>çalışıyor</span>"
+            durum = f"<span class='yesil'>{C('çalışıyor')}</span>"
         else:
-            durum = (f"<span class='bos'>ayrıldı"
+            durum = (f"<span class='bos'>{C('ayrıldı')}"
                      f"{' · ' + kacir(gun_yaz(k['ayrilis'])) if k['ayrilis'] else ''}</span>")
         satirlar += (
             f"<tr><td><b>{kacir(k['ad'])}</b>"
@@ -1371,29 +1490,32 @@ def sayfa_calisanlar(baglanti, sorgu):
             f"<td class='sag'>{para(k['sgk'] or 0)}</td>"
             f"<td class='sag'><b>{para(toplam)}</b></td>"
             f"<td>{durum}</td>"
-            f"<td class='sag'><a href='/calisanlar?duzenle={k['id']}'>düzenle</a> "
+            f"<td class='sag'><a href='/calisanlar?duzenle={k['id']}'>{C('düzenle')}</a> "
             f"{_sil_dugmesi('calisan', k['id'], '/calisanlar')}</td></tr>"
         )
     if not satirlar:
-        satirlar = ("<tr><td colspan='8' class='bos'>Henüz çalışan girilmemiş. "
-                    "Aşağıdaki formdan ekle.</td></tr>")
+        satirlar = (f"<tr><td colspan='8' class='bos'>"
+                    + C("Henüz çalışan girilmemiş. Aşağıdaki formdan ekle.") + "</td></tr>")
 
     # Bu ayin maasi yazildi mi: yazildiysa dugme yerine bilgi gosterilir ki
     # ayni ay iki kere gidere dusmesin.
     ay = bugun[:7]
     if hesap.maas_yazildi_mi(baglanti, ay):
-        maas_karti = ("<p class='bos'>Bu ayın maaşları <b>zaten gidere yazılmış</b>. "
-                      "Yanlışsa aşağıdaki listeden ya da Alım / Gider ekranından "
-                      "tek tek silebilirsin.</p>")
+        maas_karti = (f"<p class='bos'>"
+                      + C("Bu ayın maaşları <b>zaten gidere yazılmış</b>. Yanlışsa "
+                          "aşağıdaki listeden ya da Alım / Gider ekranından tek tek "
+                          "silebilirsin.") + "</p>")
     elif calisan_sayisi == 0:
-        maas_karti = "<p class='bos'>Önce çalışan ekle.</p>"
+        maas_karti = f"<p class='bos'>{C('Önce çalışan ekle.')}</p>"
     else:
-        maas_karti = f"""<p class="bos">Tek tuşla, halen çalışan {calisan_sayisi} kişinin
-her biri için ayrı bir gider satırı yazılır (net maaş + SGK). Toplam
-<b>{para(yuk['toplam'])}</b> kasadan düşer. Aynı ay ikinci kez yazılmaz.</p>
+        maas_aciklama = C("Tek tuşla, halen çalışan {n} kişinin her biri için ayrı bir "
+                          "gider satırı yazılır (net maaş + SGK). Toplam <b>{tutar}</b> "
+                          "kasadan düşer. Aynı ay ikinci kez yazılmaz.",
+                          n=calisan_sayisi, tutar=para(yuk['toplam']))
+        maas_karti = f"""<p class="bos">{maas_aciklama}</p>
 <form method="post" action="/maas-yaz"><div class="satir">
 <div>{tarih_alani(bugun)}</div>
-</div><button>Bu ayın maaşlarını gidere yaz</button></form>"""
+</div><button>{C("Bu ayın maaşlarını gidere yaz")}</button></form>"""
 
     son_maaslar = baglanti.execute(
         "SELECT id, tarih, aciklama, tutar FROM giderler WHERE aciklama LIKE 'Maaş - %'"
@@ -1404,40 +1526,45 @@ her biri için ayrı bir gider satırı yazılır (net maaş + SGK). Toplam
         f"<td class='sag'>{para(g['tutar'])}</td>"
         f"<td class='sag'>{_sil_dugmesi('gider', g['id'], '/calisanlar')}</td></tr>"
         for g in son_maaslar
-    ) or "<tr><td colspan='4' class='bos'>Henüz maaş gideri yazılmamış.</td></tr>"
+    ) or f"<tr><td colspan='4' class='bos'>{C('Henüz maaş gideri yazılmamış.')}</td></tr>"
 
     duzenleme_karti = ""
     if duzenlenen:
-        duzenleme_karti = (f"<div class='kart'><h2>{kacir(duzenlenen['ad'])} — bilgileri "
-                           f"düzenle</h2>{_calisan_formu(duzenlenen)}"
+        duzenleme_karti = (f"<div class='kart'><h2>"
+                           + C("{ad} — bilgileri düzenle", ad=kacir(duzenlenen['ad']))
+                           + f"</h2>{_calisan_formu(duzenlenen)}"
                            f"<p style='margin-top:12px'><a href='/calisanlar'>"
-                           f"vazgeç</a></p></div>")
+                           f"{C('vazgeç')}</a></p></div>")
 
+    calisan_aciklama = C('Bu liste bir kayıt defteri — buraya yazmak tek başına kasadan '
+                         'para çıkarmaz. Maaş ancak aşağıdaki <b>"maaşları gidere yaz"</b> '
+                         'tuşuna basınca gider olur.')
+    sgk_not = C("SGK/vergi kutusunu bilmiyorsan muhasebecine sor; asgari ücretli bir "
+                "çalışanda 2026'da net maaşın üstüne kabaca 12.000 {para} biniyor.",
+                para=kacir(para_birimi()))
     return f"""
 <div class="kutular">
-{kutu("Çalışan sayısı", f"{calisan_sayisi} kişi", "mavi")}
-{kutu("Aylık maaş yükü", para(yuk['toplam']), "kirmizi",
-      alt=f"{para(yuk['net'])} net + {para(yuk['sgk'])} SGK/vergi")}
+{kutu(C("Çalışan sayısı"), C("{n} kişi", n=calisan_sayisi), "mavi")}
+{kutu(C("Aylık maaş yükü"), para(yuk['toplam']), "kirmizi",
+      alt=C("{net} net + {sgk} SGK/vergi", net=para(yuk['net']), sgk=para(yuk['sgk'])))}
 </div>
 
 {duzenleme_karti}
 
-<div class="kart"><h2>Çalışanlar</h2>
-<p class="bos">Bu liste bir kayıt defteri — buraya yazmak tek başına kasadan para
-çıkarmaz. Maaş ancak aşağıdaki <b>"maaşları gidere yaz"</b> tuşuna basınca gider olur.</p>
-<table><tr><th>Ad</th><th>Görev</th><th>Telefon</th><th class='sag'>Net maaş</th>
-<th class='sag'>SGK/vergi</th><th class='sag'>Dükkâna maliyeti</th><th>Durum</th><th></th></tr>
+<div class="kart"><h2>{C("Çalışanlar")}</h2>
+<p class="bos">{calisan_aciklama}</p>
+<table><tr><th>{C("Ad")}</th><th>{C("Görev")}</th><th>{C("Telefon")}</th><th class='sag'>{C("Net maaş")}</th>
+<th class='sag'>{C("SGK/vergi")}</th><th class='sag'>{C("Dükkâna maliyeti")}</th><th>{C("Durum")}</th><th></th></tr>
 {satirlar}</table></div>
 
-<div class="kart"><h2>Bu ayın maaşları</h2>{maas_karti}</div>
+<div class="kart"><h2>{C("Bu ayın maaşları")}</h2>{maas_karti}</div>
 
-<div class="kart"><h2>Yeni çalışan ekle</h2>
-<p class="bos">SGK/vergi kutusunu bilmiyorsan muhasebecine sor; asgari ücretli bir
-çalışanda 2026'da net maaşın üstüne kabaca 12.000 {kacir(para_birimi())} biniyor.</p>
+<div class="kart"><h2>{C("Yeni çalışan ekle")}</h2>
+<p class="bos">{sgk_not}</p>
 {_calisan_formu()}</div>
 
-<div class="kart"><h2>Yazılmış maaş giderleri</h2>
-<table><tr><th>Tarih</th><th>Kim</th><th class='sag'>Tutar</th><th></th></tr>
+<div class="kart"><h2>{C("Yazılmış maaş giderleri")}</h2>
+<table><tr><th>{C("Tarih")}</th><th>{C("Kim")}</th><th class='sag'>{C("Tutar")}</th><th></th></tr>
 {maas_satirlari}</table></div>"""
 
 
@@ -1459,9 +1586,9 @@ def _hafta_yaz(baslangic):
     """Pazartesiden pazara: '17-23 Ağustos 2026'."""
     bitis = baslangic + datetime.timedelta(days=6)
     if baslangic.month == bitis.month:
-        return f"{baslangic.day}–{bitis.day} {AYLAR[bitis.month - 1]} {bitis.year}"
-    return (f"{baslangic.day} {AYLAR[baslangic.month - 1]} – "
-            f"{bitis.day} {AYLAR[bitis.month - 1]} {bitis.year}")
+        return f"{baslangic.day}–{bitis.day} {C(AYLAR[bitis.month - 1])} {bitis.year}"
+    return (f"{baslangic.day} {C(AYLAR[baslangic.month - 1])} – "
+            f"{bitis.day} {C(AYLAR[bitis.month - 1])} {bitis.year}")
 
 
 def _rapor_araligi(kip, tarih):
@@ -1480,18 +1607,18 @@ def _rapor_araligi(kip, tarih):
         baslangic = gun - datetime.timedelta(days=gun.weekday())   # pazartesi
         return (baslangic.isoformat(),
                 (baslangic + datetime.timedelta(days=6)).isoformat(),
-                _hafta_yaz(baslangic) + " haftası",
+                C("{hafta} haftası", hafta=_hafta_yaz(baslangic)),
                 (baslangic - bir_hafta).isoformat(),
                 (baslangic + bir_hafta).isoformat())
     if kip == "ay":
         baslangic = gun.replace(day=1)
         bitis = _ay_kaydir(baslangic, 1) - datetime.timedelta(days=1)
         return (baslangic.isoformat(), bitis.isoformat(),
-                f"{AYLAR[baslangic.month - 1]} {baslangic.year}",
+                f"{C(AYLAR[baslangic.month - 1])} {baslangic.year}",
                 _ay_kaydir(baslangic, -1).isoformat(),
                 _ay_kaydir(baslangic, 1).isoformat())
     if kip == "tum":
-        return COK_ESKI, COK_YENI, "Tüm zamanlar", "", ""
+        return COK_ESKI, COK_YENI, C("Tüm zamanlar"), "", ""
     return (gun.isoformat(), gun.isoformat(), gun_yaz(gun.isoformat()),
             (gun - datetime.timedelta(days=1)).isoformat(),
             (gun + datetime.timedelta(days=1)).isoformat())
@@ -1522,7 +1649,7 @@ def _donem_etiketi(kip, anahtar):
             return anahtar
     try:
         yil, ay = anahtar.split("-")
-        return f"{AYLAR[int(ay) - 1]} {yil}"
+        return f"{C(AYLAR[int(ay) - 1])} {yil}"
     except (ValueError, IndexError):
         return anahtar
 
@@ -1554,9 +1681,9 @@ def _gider_ayrintisi(baglanti, bas, son, kip):
 
     if not kayitlar:
         return f"""
-<details class="acilir"><summary>Gider ne demek?</summary>
-<div class="ic"><p class="bos">Bu dönemde hiç gider girilmemiş.</p>
-<p class="bos">{GIDER_ACIKLAMA}</p></div></details>"""
+<details class="acilir"><summary>{C("Gider ne demek?")}</summary>
+<div class="ic"><p class="bos">{C("Bu dönemde hiç gider girilmemiş.")}</p>
+<p class="bos">{C(GIDER_ACIKLAMA)}</p></div></details>"""
 
     toplam = sum(k["tutar"] for k in kayitlar)
     # Cubuklar toplam gidere gore olcekleniyor: uzunluk dogrudan "payi ne kadar"
@@ -1568,7 +1695,7 @@ def _gider_ayrintisi(baglanti, bas, son, kip):
           f" %{grafik.oran(g['tutar'], toplam):.0f}'i")
          for g in gruplar],
         grafik.TURUNCU,
-        "Gider kalemleri, büyükten küçüğe; çubuk uzunluğu toplam gider içindeki payı.")
+        C("Gider kalemleri, büyükten küçüğe; çubuk uzunluğu toplam gider içindeki payı."))
     kayit_satirlari = "".join(
         f"<tr><td>{kacir(gun_yaz(k['tarih'], False))}</td>"
         f"<td>{kacir(k['aciklama'] or '—')}</td>"
@@ -1577,18 +1704,19 @@ def _gider_ayrintisi(baglanti, bas, son, kip):
     )
     # Tek gunde gruplama listeyle ayni seyi gosterir; sadece uzun donemde anlamli.
     grup_bolumu = "" if kip == "gun" else f"""
-<h3>Neye harcanmış</h3>{grup_cubuklari}
-<p class="grafik-alt">Toplam <b>{para(toplam)}</b></p>
-<h3>Tek tek kayıtlar</h3>"""
+<h3>{C("Neye harcanmış")}</h3>{grup_cubuklari}
+<p class="grafik-alt">{C("Toplam")} <b>{para(toplam)}</b></p>
+<h3>{C("Tek tek kayıtlar")}</h3>"""
 
+    gider_duzelt = C('Gider eklemek ya da silmek için <a href="/para">Alım / Gider</a> '
+                     'sayfasını kullan.')
     return f"""
-<details class="acilir"><summary>Giderler neye harcandı?</summary>
-<div class="ic"><p class="bos">{GIDER_ACIKLAMA}</p>{grup_bolumu}
-<table><tr><th>Tarih</th><th>Ne için</th><th class='sag'>Tutar</th></tr>
+<details class="acilir"><summary>{C("Giderler neye harcandı?")}</summary>
+<div class="ic"><p class="bos">{C(GIDER_ACIKLAMA)}</p>{grup_bolumu}
+<table><tr><th>{C("Tarih")}</th><th>{C("Ne için")}</th><th class='sag'>{C("Tutar")}</th></tr>
 {kayit_satirlari}
-<tr><td><b>Toplam</b></td><td></td><td class='sag'><b>{para(toplam)}</b></td></tr></table>
-<p class="bos" style="margin-top:10px">Gider eklemek ya da silmek için
-<a href="/para">Alım / Gider</a> sayfasını kullan.</p></div></details>"""
+<tr><td><b>{C("Toplam")}</b></td><td></td><td class='sag'><b>{para(toplam)}</b></td></tr></table>
+<p class="bos" style="margin-top:10px">{gider_duzelt}</p></div></details>"""
 
 
 # Uzun tablolarda bastan kac satir gorunecek; gerisi acilir bolumde durur.
@@ -1623,15 +1751,15 @@ def _sutun_etiketi(kip, anahtar, yil_yaz):
     try:
         if kip in ("ay", "tum"):
             yil, ay = anahtar.split("-")[:2]
-            kisa = KISA_AYLAR[int(ay) - 1]
+            kisa = C(KISA_AYLAR[int(ay) - 1])
             return f"{kisa} {yil[2:]}" if yil_yaz else kisa
         gun = datetime.date.fromisoformat(anahtar)
     except (ValueError, IndexError, TypeError):
         return anahtar
     if kip == "hafta":
-        return f"{gun.day} {KISA_AYLAR[gun.month - 1]}"
+        return f"{gun.day} {C(KISA_AYLAR[gun.month - 1])}"
     # Ay basinda sadece "1" yazmak kafa karistiriyor; ay adi da yazilsin.
-    return f"1 {KISA_AYLAR[gun.month - 1]}" if gun.day == 1 else str(gun.day)
+    return f"1 {C(KISA_AYLAR[gun.month - 1])}" if gun.day == 1 else str(gun.day)
 
 
 def sayfa_ozet(baglanti, sorgu):
@@ -1644,7 +1772,7 @@ def sayfa_ozet(baglanti, sorgu):
 
     sekmeler = '<div class="sekmeler">' + "".join(
         f'<a href="{_rapor_adresi(anahtar, tarih)}" '
-        f'class="{"aktif" if anahtar == kip else ""}">{etiket}</a>'
+        f'class="{"aktif" if anahtar == kip else ""}">{C(etiket)}</a>'
         for anahtar, etiket in RAPOR_KIPLERI
     ) + "</div>"
 
@@ -1653,7 +1781,7 @@ def sayfa_ozet(baglanti, sorgu):
         donem_karti = (f'<div class="kart tam"><div class="donem-ust">'
                        f'<h2>{kacir(baslik)}</h2></div>'
                        f'<p class="bos" style="text-align:center;margin:6px 0 0">'
-                       f'Bugüne kadar girilmiş bütün kayıtlar.</p></div>')
+                       f'{C("Bugüne kadar girilmiş bütün kayıtlar.")}</p></div>')
     else:
         donem_karti = f"""
 <div class="kart tam"><div class="donem-ust">
@@ -1664,14 +1792,15 @@ def sayfa_ozet(baglanti, sorgu):
 <input type="hidden" name="kip" value="{kacir(kip)}">
 <div style="display:flex; gap:10px; align-items:end">
 <div style="flex:1; min-width:0">{tarih_alani(bas)}</div>
-<button class="ikincil">Göster</button></div></form></div>"""
+<button class="ikincil">{C("Göster")}</button></div></form></div>"""
 
     # --- 2. serit: uc buyuk rakam -----------------------------------------
     # Gunluk ortalama tek gun icin anlamsiz; hafta/ayda ciro kutusunun altina yazilir.
-    ciro_alt = "bu dönemde satılan"
+    ciro_alt = C("bu dönemde satılan")
     if kip != "gun" and ozet["satis_gunu"]:
-        ciro_alt = (f"{ozet['satis_gunu']} günde · günde ortalama "
-                    f"{para(ozet['ciro'] / ozet['satis_gunu'])}")
+        ciro_alt = C("{gun} günde · günde ortalama {ort}",
+                     gun=ozet['satis_gunu'],
+                     ort=para(ozet['ciro'] / ozet['satis_gunu']))
 
     # --- 3. serit: para nereye gitti --------------------------------------
     # Seridin tamami cironun kendisi: maliyet + gider + net kar. Gider ve maliyet
@@ -1679,60 +1808,65 @@ def sayfa_ozet(baglanti, sorgu):
     # cironun nerede bittigi bir cizgiyle isaretleniyor.
     maliyet, gider_t, net = (ozet["satis_maliyeti"], ozet["gider"], ozet["net_kar"])
     serit_toplam = maliyet + gider_t + max(net, 0.0)
-    parcalar = [("Satılanların maliyeti", para(maliyet),
+    parcalar = [(C("Satılanların maliyeti"), para(maliyet),
                  grafik.oran(maliyet, serit_toplam), grafik.MAVI),
-                ("Giderler", para(gider_t),
+                (C("Giderler"), para(gider_t),
                  grafik.oran(gider_t, serit_toplam), grafik.TURUNCU)]
     isaret, zarar_notu = None, ""
     if net >= 0:
-        parcalar.append(("Net kâr", para(net),
+        parcalar.append((C("Net kâr"), para(net),
                          grafik.oran(net, serit_toplam), grafik.YESIL))
-        aria = (f"Ciro {para(ozet['ciro'])}; bunun"
-                f" %{grafik.oran(maliyet, serit_toplam):.0f}'i satılanların maliyeti,"
-                f" %{grafik.oran(gider_t, serit_toplam):.0f}'i giderler,"
-                f" %{grafik.oran(net, serit_toplam):.0f}'i net kâr.")
+        aria = C("Ciro {ciro}; bunun %{m}'i satılanların maliyeti, %{g}'i giderler, "
+                 "%{n}'i net kâr.",
+                 ciro=para(ozet['ciro']),
+                 m=f"{grafik.oran(maliyet, serit_toplam):.0f}",
+                 g=f"{grafik.oran(gider_t, serit_toplam):.0f}",
+                 n=f"{grafik.oran(net, serit_toplam):.0f}")
     else:
         isaret = (grafik.oran(ozet["ciro"], serit_toplam),
-                  f"Ciro burada bitiyor: {para(ozet['ciro'])}")
-        zarar_notu = (f'<p class="grafik-alt" style="color:#c1392b">Maliyet ve gider'
-                      f' cironun üstünde: bu dönem <b style="color:#c1392b">'
-                      f'{para(-net)} zarar</b>.</p>')
-        aria = (f"Maliyet ve giderler toplamı {para(serit_toplam)}, ciro"
-                f" {para(ozet['ciro'])}; aradaki fark {para(-net)} zarar.")
+                  C("Ciro burada bitiyor: {ciro}", ciro=para(ozet['ciro'])))
+        zarar_notu = (f'<p class="grafik-alt" style="color:#c1392b">'
+                      + C("Maliyet ve gider cironun üstünde: bu dönem "
+                          '<b style="color:#c1392b">{zarar} zarar</b>.',
+                          zarar=para(-net)) + '</p>')
+        aria = C("Maliyet ve giderler toplamı {toplam}, ciro {ciro}; aradaki fark "
+                 "{zarar} zarar.",
+                 toplam=para(serit_toplam), ciro=para(ozet['ciro']), zarar=para(-net))
     serit = grafik.yigilmis_serit(parcalar, aria, isaret) + zarar_notu
 
     akis = f"""
-<div class="kart"><h2>Para nereye gitti?</h2>
+<div class="kart"><h2>{C("Para nereye gitti?")}</h2>
 {serit}
 <table class="akis">
-<tr><td class="isaret"></td><td>Ciro
-<span class="aciklama">satıştan gelen para</span></td>
+<tr><td class="isaret"></td><td>{C("Ciro")}
+<span class="aciklama">{C("satıştan gelen para")}</span></td>
 <td class="sag">{para(ozet['ciro'])}</td></tr>
-<tr><td class="isaret">−</td><td>Satılanların maliyeti
-<span class="aciklama">satılan ürünlerin içine giren malzeme</span></td>
+<tr><td class="isaret">−</td><td>{C("Satılanların maliyeti")}
+<span class="aciklama">{C("satılan ürünlerin içine giren malzeme")}</span></td>
 <td class="sag">{para(ozet['satis_maliyeti'])}</td></tr>
-<tr class="sonuc"><td class="isaret">=</td><td>Brüt kâr</td>
+<tr class="sonuc"><td class="isaret">=</td><td>{C("Brüt kâr")}</td>
 <td class="sag">{para(ozet['brut_kar'])}</td></tr>
-<tr><td class="isaret">−</td><td>Giderler
-<span class="aciklama">kira, elektrik, personel, vergi…</span></td>
+<tr><td class="isaret">−</td><td>{C("Giderler")}
+<span class="aciklama">{C("kira, elektrik, personel, vergi…")}</span></td>
 <td class="sag">{para(ozet['gider'])}</td></tr>
-<tr class="sonuc"><td class="isaret">=</td><td>Net kâr</td>
+<tr class="sonuc"><td class="isaret">=</td><td>{C("Net kâr")}</td>
 <td class="sag">{para(ozet['net_kar'])}</td></tr>
 </table>
 {_gider_ayrintisi(baglanti, bas, son, kip)}</div>"""
 
     # --- 4. serit: kar hesabina girmeyen para hareketleri -----------------
+    alimlar_aciklama = C("Bunlar yukarıdaki kâr hesabına girmez: alınan malzeme stoğa "
+                         "yazılır, kâr ancak o malzeme satıldığında ortaya çıkar. "
+                         "Buradaki rakamlar paranın kasadan ne zaman çıktığını gösterir.")
     alimlar = f"""
-<div class="kart"><h2>Alımlar ve ödemeler</h2>
-<p class="bos">Bunlar yukarıdaki kâr hesabına girmez: alınan malzeme stoğa yazılır,
-kâr ancak o malzeme satıldığında ortaya çıkar. Buradaki rakamlar paranın
-kasadan ne zaman çıktığını gösterir.</p>
+<div class="kart"><h2>{C("Alımlar ve ödemeler")}</h2>
+<p class="bos">{alimlar_aciklama}</p>
 <table>
-<tr><td>Peşin alımlar</td><td class='sag'>{para(ozet['alim_pesin'])}</td></tr>
-<tr><td>Veresiye alımlar <span class="bos">(borca yazıldı)</span></td>
+<tr><td>{C("Peşin alımlar")}</td><td class='sag'>{para(ozet['alim_pesin'])}</td></tr>
+<tr><td>{C("Veresiye alımlar")} <span class="bos">{C("(borca yazıldı)")}</span></td>
 <td class='sag'>{para(ozet['alim_veresiye'])}</td></tr>
-<tr><td>Tedarikçiye ödenen</td><td class='sag'>{para(ozet['borc_odemesi'])}</td></tr>
-<tr><td>Üretime giren malzeme</td><td class='sag'>{para(ozet['uretim_maliyeti'])}</td></tr>
+<tr><td>{C("Tedarikçiye ödenen")}</td><td class='sag'>{para(ozet['borc_odemesi'])}</td></tr>
+<tr><td>{C("Üretime giren malzeme")}</td><td class='sag'>{para(ozet['uretim_maliyeti'])}</td></tr>
 </table></div>"""
 
     # --- 5. serit: urunler -------------------------------------------------
@@ -1746,11 +1880,12 @@ kasadan ne zaman çıktığını gösterir.</p>
     en_yuksek_kar = max((u["kar"] for u in urunler), default=0.0)
     urun_cubuklari = grafik.cubuk_listesi(
         [(u["ad"], para(u["kar"]), grafik.oran(u["kar"], en_yuksek_kar),
-          f"{u['ad']} — {mik(u['miktar'])} {u['birim']} satıldı,"
-          f" ciro {para(u['ciro'])}, kâr {para(u['kar'])}")
+          C("{ad} — {miktar} {birim} satıldı, ciro {ciro}, kâr {kar}",
+            ad=u['ad'], miktar=mik(u['miktar']), birim=u['birim'],
+            ciro=para(u['ciro']), kar=para(u['kar'])))
          for u in urunler[:KISA_LISTE]],
         grafik.MAVI,
-        "Ürünler kâra göre sıralı; çubuk uzunluğu en çok kazandırana oranla.")
+        C("Ürünler kâra göre sıralı; çubuk uzunluğu en çok kazandırana oranla."))
     urun_satirlari = [
         f"<tr><td>{kacir(u['ad'])}</td>"
         f"<td class='sag'>{mik(u['miktar'])} {kacir(u['birim'])}</td>"
@@ -1759,13 +1894,13 @@ kasadan ne zaman çıktığını gösterir.</p>
         for u in urunler
     ]
     urun_karti = f"""
-<div class="kart"><h2>En çok kazandıran ürünler</h2>
-{urun_cubuklari if urunler else grafik.bos("Bu dönemde satış kaydı yok.")}
+<div class="kart"><h2>{C("En çok kazandıran ürünler")}</h2>
+{urun_cubuklari if urunler else grafik.bos(C("Bu dönemde satış kaydı yok."))}
 {_tablo_bolumu(("30%", "20%", "25%", "25%"),
-               "<th>Ürün</th><th class='sag'>Satılan</th><th class='sag'>Ciro</th>"
-               "<th class='sag'>Kâr</th>",
+               f"<th>{C('Ürün')}</th><th class='sag'>{C('Satılan')}</th><th class='sag'>{C('Ciro')}</th>"
+               f"<th class='sag'>{C('Kâr')}</th>",
                urun_satirlari,
-               f"{len(urun_satirlari)} ürünün tamamını tablo olarak gör")}</div>"""
+               C("{n} ürünün tamamını tablo olarak gör", n=len(urun_satirlari)))}</div>"""
 
     # --- 6. serit: donemin gidisati ---------------------------------------
     grup, sutun, adet, liste_basligi = DONEM_LISTESI[kip]
@@ -1797,29 +1932,30 @@ kasadan ne zaman çıktığını gösterir.</p>
         noktalar.append((
             etiket, grafik.oran(donem["ciro"], tavan), secili,
             _donem_baglantisi(kip, anahtar),
-            f"{_donem_etiketi(kip, anahtar)} — ciro {para(donem['ciro'])},"
-            f" brüt kâr {para(donem['brut'])}"))
+            C("{etiket} — ciro {ciro}, brüt kâr {kar}",
+              etiket=_donem_etiketi(kip, anahtar), ciro=para(donem['ciro']),
+              kar=para(donem['brut']))))
     gidisat_grafigi = grafik.sutun_grafigi(
         noktalar, grafik.kisa_para(tavan, para_birimi()),
-        f"{liste_basligi}: ciro sütunları, eskiden yeniye.",
-        "Koyu sütun şu an baktığın dönem. Sütuna tıklayınca o dönemin raporu açılır.")
+        C("{baslik}: ciro sütunları, eskiden yeniye.", baslik=C(liste_basligi)),
+        C("Koyu sütun şu an baktığın dönem. Sütuna tıklayınca o dönemin raporu açılır."))
 
     gidisat_karti = f"""
-<div class="kart"><h2>{liste_basligi}</h2>
-{gidisat_grafigi if noktalar else grafik.bos("Henüz satış kaydı yok.")}
+<div class="kart"><h2>{C(liste_basligi)}</h2>
+{gidisat_grafigi if noktalar else grafik.bos(C("Henüz satış kaydı yok."))}
 {_tablo_bolumu(("40%", "30%", "30%"),
-               f"<th>{sutun}</th><th class='sag'>Ciro</th><th class='sag'>Brüt kâr</th>",
-               donem_satirlari, "Rakamları tablo olarak gör")}</div>"""
+               f"<th>{C(sutun)}</th><th class='sag'>{C('Ciro')}</th><th class='sag'>{C('Brüt kâr')}</th>",
+               donem_satirlari, C("Rakamları tablo olarak gör"))}</div>"""
 
     return f"""{sekmeler}
 {donem_karti}
 <div class="kutular baslik">
-{kutu("Ciro", para(ozet["ciro"]), "mavi", ciro_alt)}
-{kutu("Net kâr", para(ozet["net_kar"]),
-      "yesil" if ozet["net_kar"] >= 0 else "kirmizi", "giderler düşüldükten sonra")}
-{kutu("Kasa değişimi", para(ozet["kasa_degisimi"]),
+{kutu(C("Ciro"), para(ozet["ciro"]), "mavi", ciro_alt)}
+{kutu(C("Net kâr"), para(ozet["net_kar"]),
+      "yesil" if ozet["net_kar"] >= 0 else "kirmizi", C("giderler düşüldükten sonra"))}
+{kutu(C("Kasa değişimi"), para(ozet["kasa_degisimi"]),
       "yesil" if ozet["kasa_degisimi"] >= 0 else "kirmizi",
-      "kâr değil; kasaya net giren para")}
+      C("kâr değil; kasaya net giren para"))}
 </div>
 {akis}
 {alimlar}
@@ -1832,13 +1968,12 @@ def _tahmin_baglantisi(baglanti):
     """Raporlar gecmisi anlatir; ileriye bakmak isteyen tahmine gitsin."""
     if ayar(baglanti, "tahmin_acik", "1") != "1":
         return ""
-    return """
-<div class="kart"><h2>İleriye bakmak için</h2>
-<p class="bos">Buradaki rakamlar olan biteni anlatır. Önümüzdeki günlerde ne
-kadar satacağını ve ne üretmen gerektiğini tahmin sayfası söyler.</p>
+    return f"""
+<div class="kart"><h2>{C("İleriye bakmak için")}</h2>
+<p class="bos">{C("Buradaki rakamlar olan biteni anlatır. Önümüzdeki günlerde ne kadar satacağını ve ne üretmen gerektiğini tahmin sayfası söyler.")}</p>
 <p style="margin:12px 0 0"><a class="sablon" href="/tahmin">
-<b>Tahmin sayfasını aç</b>
-Yedi günlük hava, ciro tahmini ve üretim önerisi</a></p></div>"""
+<b>{C("Tahmin sayfasını aç")}</b>
+{C("Yedi günlük hava, ciro tahmini ve üretim önerisi")}</a></p></div>"""
 
 
 # ---------------------------------------------------------------- tahmin
@@ -1852,14 +1987,14 @@ def _hava_serisi(baglanti, gun_sayisi=7):
         satir = hava.gun(baglanti, tarih)
         if satir is None or satir["en_yuksek"] is None:
             continue
-        gun_adi = ("Bugün" if kaydirma == 0 else
-                   "Yarın" if kaydirma == 1 else
-                   tahmin_modulu.GUN_ADLARI[(bugun + datetime.timedelta(days=kaydirma)).weekday()])
+        gun_adi = (C("Bugün") if kaydirma == 0 else
+                   C("Yarın") if kaydirma == 1 else
+                   C(tahmin_modulu.GUN_ADLARI[(bugun + datetime.timedelta(days=kaydirma)).weekday()]))
         alt = kacir(hava.hadise_metni(satir["hadise"])
-                    or ("yağışlı" if satir["yagmurlu"] else ""))
+                    or (C("yağışlı") if satir["yagmurlu"] else ""))
         oran = hava.ihtimal(satir)
         if oran is not None:
-            yagmur = f'<b>☔ %{oran}</b> yağış ihtimali'
+            yagmur = f'<b>☔ %{oran}</b> ' + C('yağış ihtimali')
             alt = f"{alt}<br>{yagmur}" if alt else yagmur
         kartlar += kutu(gun_adi,
                         f'<span class="hava-simge">{hava.simge(satir)}</span>'
@@ -1867,52 +2002,55 @@ def _hava_serisi(baglanti, gun_sayisi=7):
     return kartlar
 
 
-OZEL_GUN_KARTI = """
-<div class="kart"><h2>Özel günler</h2>
-<p class="bos">Bayram, festival, okul tatili gibi günleri takvime yazarsan
-tahmin o günleri ayrı öğrenir.</p>
+def _ozel_gun_karti():
+    return f"""
+<div class="kart"><h2>{C("Özel günler")}</h2>
+<p class="bos">{C("Bayram, festival, okul tatili gibi günleri takvime yazarsan tahmin o günleri ayrı öğrenir.")}</p>
 <p style="margin:12px 0 0"><a class="sablon" href="/ozel-gunler">
-<b>Özel gün takvimini aç</b>
-Bayram, festival, tatil — girilen günler ve öğrenilenler</a></p></div>"""
+<b>{C("Özel gün takvimini aç")}</b>
+{C("Bayram, festival, tatil — girilen günler ve öğrenilenler")}</a></p></div>"""
 
 
 def sayfa_tahmin(baglanti, sorgu):
     if not hava.sehir_secili_mi(baglanti):
-        return """
-<div class="kart"><h2>Önce şehri seç</h2>
-<p class="bos">Tahmin, resmi MGM hava verisine dayanıyor. Hangi ildesin?
-<a href="/ayarlar">Ayarlar</a> sayfasının en altındaki "Hava ve tahmin"
-bölümünden ilini seç, gerisi kendiliğinden gelir.</p></div>""" + OZEL_GUN_KARTI
+        sehir_sec = C('Tahmin, resmi MGM hava verisine dayanıyor. Hangi ildesin? '
+                      '<a href="/ayarlar">Ayarlar</a> sayfasının en altındaki "Hava ve '
+                      'tahmin" bölümünden ilini seç, gerisi kendiliğinden gelir.')
+        return f"""
+<div class="kart"><h2>{C("Önce şehri seç")}</h2>
+<p class="bos">{sehir_sec}</p></div>""" + _ozel_gun_karti()
 
     model, gunler, uretimler = tahmin_modulu.ileri_tahmin(baglanti, 7)
     sehir = kacir(ayar(baglanti, "sehir", ""))
-    son = kacir(ayar(baglanti, "hava_son_kontrol", "")) or "henüz alınmadı"
+    son = kacir(ayar(baglanti, "hava_son_kontrol", "")) or C("henüz alınmadı")
 
+    hava_yok = C("Hava verisi henüz alınamadı. İnternet bağlantını kontrol edip "
+                 "aşağıdaki düğmeye bas.")
+    kaynak_not = C("Kaynak: resmi MGM tahmini · yağış ihtimali: Open-Meteo · "
+                   "son güncelleme: {son}", son=son)
     hava_karti = f"""
-<div class="kart"><h2>{sehir} — hava</h2>
-<div class="kutular">{_hava_serisi(baglanti) or
-    '<p class="bos">Hava verisi henüz alınamadı. İnternet bağlantını kontrol edip '
-    'aşağıdaki düğmeye bas.</p>'}</div>
-<p class="bos">Kaynak: resmi MGM tahmini · yağış ihtimali: Open-Meteo ·
-son güncelleme: {son}</p>
+<div class="kart"><h2>{C("{sehir} — hava", sehir=sehir)}</h2>
+<div class="kutular">{_hava_serisi(baglanti) or f'<p class="bos">{hava_yok}</p>'}</div>
+<p class="bos">{kaynak_not}</p>
 <form method="post" action="/hava-guncelle" style="margin-top:8px">
-<button class="ikincil">Havayı şimdi güncelle</button></form></div>"""
+<button class="ikincil">{C("Havayı şimdi güncelle")}</button></form></div>"""
 
     if not gunler:
+        beklet = C('Sistem şu anda arka planda çalışıyor: her günün havası '
+                   'kaydediliyor. Sen gün sonu satışlarını girdikçe program "sıcaklık '
+                   'şu kadar olduğunda ciro şu kadar oluyor" ilişkisini kendisi '
+                   'çıkaracak. Bunun için senin bir şey yapman gerekmiyor.')
         return hava_karti + f"""
-<div class="kart"><h2>Satış tahmini</h2>
-<div class="uyari yakin"><b>Tahmin henüz çalışmıyor</b>
+<div class="kart"><h2>{C("Satış tahmini")}</h2>
+<div class="uyari yakin"><b>{C("Tahmin henüz çalışmıyor")}</b>
 <div class="detay">{kacir(tahmin_modulu.durum_metni(model))}</div></div>
-<p class="bos">Sistem şu anda arka planda çalışıyor: her günün havası
-kaydediliyor. Sen gün sonu satışlarını girdikçe program "sıcaklık şu kadar
-olduğunda ciro şu kadar oluyor" ilişkisini kendisi çıkaracak. Bunun için
-senin bir şey yapman gerekmiyor.</p></div>""" + OZEL_GUN_KARTI
+<p class="bos">{beklet}</p></div>""" + _ozel_gun_karti()
 
     satirlar = ""
     for gun in gunler:
         vurgu = " style='background:#f4f9ff'" if gun["tarih"] == hesap.bugun() else ""
         satirlar += (
-            f"<tr{vurgu}><td><b>{kacir(gun['gun_adi'])}</b>"
+            f"<tr{vurgu}><td><b>{kacir(C(gun['gun_adi']))}</b>"
             f"<div class='bos' style='font-size:13px'>{kacir(gun['tarih'])}</div></td>"
             f"<td>{kacir(gun['hava'])}</td>"
             f"<td class='sag'><b>{para(gun['ciro'])}</b>"
@@ -1931,24 +2069,29 @@ senin bir şey yapman gerekmiyor.</p></div>""" + OZEL_GUN_KARTI
             satir_html += (f"<tr><td>{kacir(kalem['ad'])}</td>"
                            f"<td class='sag'>{mik(miktar, 1)} {kacir(kalem['birim'])}</td></tr>")
         if satir_html:
-            kirilim += (f"<h3>{kacir(gun['gun_adi'])} — ne kadar satılır</h3>"
-                        f"<table>{satir_html}</table>")
+            kirilim += (f"<h3>"
+                        + C("{gun} — ne kadar satılır", gun=kacir(C(gun['gun_adi'])))
+                        + f"</h3><table>{satir_html}</table>")
 
     uretim_html = ""
     for oneri in uretimler:
         if oneri["acik"] <= 0:
-            durum = (f"<span class='yesil'>elde yeterli var "
-                     f"({mik(oneri['elde'], 1)} {kacir(oneri['kalem']['birim'])})</span>")
+            durum = (f"<span class='yesil'>"
+                     + C("elde yeterli var ({n} {birim})",
+                         n=mik(oneri['elde'], 1), birim=kacir(oneri['kalem']['birim']))
+                     + "</span>")
         else:
             birim = kacir(oneri["kalem"]["birim"])
             # Tam kazan cirpildigi icin cikan miktar acigi asabiliyor; artan
             # yaziliyor ki dukkan bilerek fazla uretti gorsun.
-            artan = (f", {mik(oneri['artacak'], 1)} {birim} artar"
+            artan = (C(", {n} {birim} artar", n=mik(oneri['artacak'], 1), birim=birim)
                      if oneri["artacak"] > 0.05 else "")
-            durum = (f"<b>{oneri['parti']} {kacir(oneri['parti_ad'])} üret</b> "
+            durum = (f"<b>" + C("{sayi} {parti} üret", sayi=oneri['parti'],
+                                parti=kacir(oneri['parti_ad'])) + "</b> "
                      f"<div class='bos' style='font-size:13px'>"
-                     f"{mik(oneri['acik'], 1)} {birim} açık → "
-                     f"{mik(oneri['cikacak'], 1)} {birim} çıkar{artan}</div>")
+                     + C("{acik} {birim} açık → {cikacak} {birim} çıkar",
+                         acik=mik(oneri['acik'], 1), birim=birim,
+                         cikacak=mik(oneri['cikacak'], 1)) + f"{artan}</div>")
         uretim_html += (
             f"<tr><td>{kacir(oneri['kalem']['ad'])}</td>"
             f"<td class='sag'>{mik(oneri['gereken'], 1)} {kacir(oneri['kalem']['birim'])}</td>"
@@ -1958,23 +2101,23 @@ senin bir şey yapman gerekmiyor.</p></div>""" + OZEL_GUN_KARTI
     uretim_karti = ""
     if uretim_html:
         uretim_karti = f"""
-<div class="kart"><h2>Önümüzdeki {len(gunler)} gün için ne üretmeli</h2>
-<p class="bos">Tahmin edilen satışların reçetelerden hesaplanan malzeme
-ihtiyacı, eldeki stokla karşılaştırıldı.</p><table>
-<tr><th>Ürün</th><th class='sag'>Gereken</th><th class='sag'>Elde</th>
-<th class='sag'>Öneri</th></tr>{uretim_html}</table></div>"""
+<div class="kart"><h2>{C("Önümüzdeki {n} gün için ne üretmeli", n=len(gunler))}</h2>
+<p class="bos">{C("Tahmin edilen satışların reçetelerden hesaplanan malzeme ihtiyacı, eldeki stokla karşılaştırıldı.")}</p><table>
+<tr><th>{C("Ürün")}</th><th class='sag'>{C("Gereken")}</th><th class='sag'>{C("Elde")}</th>
+<th class='sag'>{C("Öneri")}</th></tr>{uretim_html}</table></div>"""
 
+    aralik_not = C("Alttaki küçük rakamlar tahminin gerçekleşebileceği aralık. Program "
+                   "geçmişte ortalama {hata} yanılmış; aralık buradan çıkıyor. Veri "
+                   "arttıkça aralık daralır.", hata=para(model['hata_payi']))
     return f"""{hava_karti}
-<div class="kart"><h2>Satış tahmini</h2>
+<div class="kart"><h2>{C("Satış tahmini")}</h2>
 <p class="bos">{kacir(tahmin_modulu.durum_metni(model))}</p>
-<table><tr><th>Gün</th><th>Hava</th><th class='sag'>Tahmini ciro</th></tr>
+<table><tr><th>{C("Gün")}</th><th>{C("Hava")}</th><th class='sag'>{C("Tahmini ciro")}</th></tr>
 {satirlar}</table>
-<p class="bos" style="margin-top:12px">Alttaki küçük rakamlar tahminin
-gerçekleşebileceği aralık. Program geçmişte ortalama {para(model['hata_payi'])}
-yanılmış; aralık buradan çıkıyor. Veri arttıkça aralık daralır.</p>
+<p class="bos" style="margin-top:12px">{aralik_not}</p>
 {kirilim}</div>
 {uretim_karti}
-{OZEL_GUN_KARTI}"""
+{_ozel_gun_karti()}"""
 
 
 # ---------------------------------------------------------------- ozel gunler
@@ -1986,23 +2129,23 @@ def _ozel_gun_satiri(kayit, bugun):
         tarih = gun_yaz(kayit["baslangic"])
     else:
         tarih = (f"{gun_yaz(kayit['baslangic'])} – {gun_yaz(kayit['bitis'])}"
-                 f" <span class='bos'>({gun_sayisi} gün)</span>")
+                 f" <span class='bos'>{C('({n} gün)', n=gun_sayisi)}</span>")
 
     # Programin urettigi satir silinse ilk acilista geri gelir; kapatilir.
     if kayit["kaynak"] == "elle":
         dugme = (f'<form method="post" action="/ozel-gun-sil" style="display:inline">'
                  f'<input type="hidden" name="id" value="{kayit["id"]}">'
-                 f'<button class="sil">sil</button></form>')
+                 f'<button class="sil">{C("sil")}</button></form>')
     else:
         dugme = ""
     dugme += (f'<form method="post" action="/ozel-gun-durum" style="display:inline">'
               f'<input type="hidden" name="id" value="{kayit["id"]}">'
-              f'<button class="mini">{"kapat" if kayit["aktif"] else "aç"}</button>'
+              f'<button class="mini">{C("kapat") if kayit["aktif"] else C("aç")}</button>'
               f'</form>')
 
     sonu = kayit["bitis"] < bugun
     stil = " style='opacity:.45'" if not kayit["aktif"] or sonu else ""
-    durum = "" if kayit["aktif"] else " <span class='rozet'>kapalı</span>"
+    durum = "" if kayit["aktif"] else f" <span class='rozet'>{C('kapalı')}</span>"
     return (f"<tr{stil}><td>{tarih}</td>"
             f"<td>{kacir(kayit['ad'])}{durum}</td>"
             f"<td><span class='rozet'>{kacir(kayit['etiket'])}</span></td>"
@@ -2028,14 +2171,16 @@ def sayfa_ozel_gunler(baglanti, sorgu):
     for etiket, adet in sorted(gunler.items(), key=lambda i: -i[1]):
         ogrenilen = model["etiket_katsayilari"].get(etiket)
         if ogrenilen:
-            durum = (f"<span class='yesil'>normalin {mik(ogrenilen[0], 2)} katı</span>"
-                     f"<div class='bos' style='font-size:13px'>{ogrenilen[1]} günlük "
-                     f"satıştan çıktı</div>")
+            durum = (f"<span class='yesil'>"
+                     + C("normalin {kat} katı", kat=mik(ogrenilen[0], 2)) + "</span>"
+                     f"<div class='bos' style='font-size:13px'>"
+                     + C("{n} günlük satıştan çıktı", n=ogrenilen[1]) + "</div>")
         else:
-            durum = ("<span class='bos'>henüz öğrenilmedi — bu etiketten en az "
-                     f"{tahmin_modulu.EN_AZ_ETIKET_GUN} gün satış girilmeli</span>")
+            durum = (f"<span class='bos'>"
+                     + C("henüz öğrenilmedi — bu etiketten en az {n} gün satış girilmeli",
+                         n=tahmin_modulu.EN_AZ_ETIKET_GUN) + "</span>")
         etiket_satirlari += (f"<tr><td><span class='rozet'>{kacir(etiket)}</span></td>"
-                             f"<td class='sag'>{adet} gün</td><td>{durum}</td></tr>")
+                             f"<td class='sag'>{C('{n} gün', n=adet)}</td><td>{durum}</td></tr>")
 
     # Takvim, yila gore ayrilir; gecmis yillar da dursun ki model neyi neden
     # ogrendigi sorulunca geriye bakilabilsin.
@@ -2049,54 +2194,62 @@ def sayfa_ozel_gunler(baglanti, sorgu):
         takvim_satirlari += _ozel_gun_satiri(kayit, bugun)
 
     if not takvim_satirlari:
-        takvim_satirlari = "<tr><td colspan='4' class='bos'>Takvim boş.</td></tr>"
+        takvim_satirlari = f"<tr><td colspan='4' class='bos'>{C('Takvim boş.')}</td></tr>"
 
     eksikler = takvim.eksik_bayram_yillari(baglanti)
     uyari = ""
     if eksikler:
         liste = ", ".join(f"{ad} {y}" for ad, y in eksikler)
-        uyari = (f"<div class='uyari acil'><b>Bayram tarihi eksik</b>"
-                 f"<div class='detay'>{kacir(liste)} takvimde yok. Dini bayramlar "
-                 f"her yıl kaydığı için elle giriliyor; aşağıdaki formdan ekle.</div></div>")
+        uyari = (f"<div class='uyari acil'><b>{C('Bayram tarihi eksik')}</b>"
+                 f"<div class='detay'>"
+                 + C("{liste} takvimde yok. Dini bayramlar her yıl kaydığı için elle "
+                     "giriliyor; aşağıdaki formdan ekle.", liste=kacir(liste))
+                 + "</div></div>")
 
     oneriler = "".join(f'<option value="{kacir(e)}">' for e in takvim.etiketler(baglanti))
 
+    etiket_aciklama = C('Program her <b>etiket</b> için tek bir katsayı öğrenir: "bu '
+                        'etiketli günlerde ciro normalin kaç katı". Aynı etiketi taşıyan '
+                        'günler aynı havuza girer — 29 Ekim ile 23 Nisan birlikte "Resmi '
+                        'Tatil" katsayısını besler, o yüzden tek başına bir güne göre çok '
+                        'daha çabuk öğrenilir.')
+    takvim_aciklama = C("Resmi tatiller, bayramlar, arifeler ve Ramazan ayı her açılışta "
+                        "kendiliğinden yazılır. Bunlar silinmez — dükkânda fark "
+                        "yaratmıyorsa <b>kapat</b>, model o günleri hiç görmez.")
+    yeni_aciklama = C("Köprü günü, festival, yol çalışması, fındık toplama dönemi… "
+                      "Satışı normalden farklı yapan her şey buraya girilebilir. Tek "
+                      "günlükse bitiş tarihini boş bırak.")
+    etiket_ipucu = C('<b>Etiketi nasıl seçmeli:</b> tekrar eden bir şeyse her yıl '
+                     '<u>aynı</u> etiketi yaz — "Fındık Toplama 2026" değil, sadece '
+                     '"Fındık Toplama". Program yılları birleştirip tek katsayı öğrenir. '
+                     "Yılda {n} günün altında kalan etiketler öğrenilemez.",
+                     n=tahmin_modulu.EN_AZ_ETIKET_GUN)
     return f"""{uyari}
-<div class="kart"><h2>Etiketler</h2>
-<p class="bos">Program her <b>etiket</b> için tek bir katsayı öğrenir: "bu etiketli
-günlerde ciro normalin kaç katı". Aynı etiketi taşıyan günler aynı havuza girer —
-29 Ekim ile 23 Nisan birlikte "Resmi Tatil" katsayısını besler, o yüzden tek başına
-bir güne göre çok daha çabuk öğrenilir.</p>
-<table><tr><th>Etiket</th><th class='sag'>{yil}'da</th><th>Durum</th></tr>
-{etiket_satirlari or "<tr><td colspan='3' class='bos'>Etiket yok.</td></tr>"}</table></div>
+<div class="kart"><h2>{C("Etiketler")}</h2>
+<p class="bos">{etiket_aciklama}</p>
+<table><tr><th>{C("Etiket")}</th><th class='sag'>{C("{yil}'da", yil=yil)}</th><th>{C("Durum")}</th></tr>
+{etiket_satirlari or f"<tr><td colspan='3' class='bos'>{C('Etiket yok.')}</td></tr>"}</table></div>
 
-<div class="kart"><h2>Takvim</h2>
-<p class="bos">Resmi tatiller, bayramlar, arifeler ve Ramazan ayı her açılışta
-kendiliğinden yazılır. Bunlar silinmez — dükkânda fark yaratmıyorsa
-<b>kapat</b>, model o günleri hiç görmez.</p>
-<table><tr><th>Tarih</th><th>Ne</th><th>Etiket</th><th></th></tr>
+<div class="kart"><h2>{C("Takvim")}</h2>
+<p class="bos">{takvim_aciklama}</p>
+<table><tr><th>{C("Tarih")}</th><th>{C("Ne")}</th><th>{C("Etiket")}</th><th></th></tr>
 {takvim_satirlari}</table></div>
 
-<div class="kart"><h2>Yeni özel gün ya da dönem ekle</h2>
-<p class="bos">Köprü günü, festival, yol çalışması, fındık toplama dönemi…
-Satışı normalden farklı yapan her şey buraya girilebilir. Tek günlükse bitiş
-tarihini boş bırak.</p>
+<div class="kart"><h2>{C("Yeni özel gün ya da dönem ekle")}</h2>
+<p class="bos">{yeni_aciklama}</p>
 <form method="post" action="/ozel-gun-ekle">
 <div class="satir">
-<div><label>Adı</label><input type="text" name="ad" placeholder="Fındık toplama 2026"></div>
-<div><label>Etiket</label>
-<input type="text" name="etiket" list="etiketler" placeholder="Fındık Toplama">
+<div><label>{C("Adı")}</label><input type="text" name="ad" placeholder="{C('Fındık toplama 2026')}"></div>
+<div><label>{C("Etiket")}</label>
+<input type="text" name="etiket" list="etiketler" placeholder="{C('Fındık Toplama')}">
 <datalist id="etiketler">{oneriler}</datalist></div>
 </div>
 <div class="satir">
-<div><label>Başlangıç</label><input type="date" name="baslangic" value="{kacir(bugun)}"></div>
-<div><label>Bitiş</label><input type="date" name="bitis"></div>
+<div><label>{C("Başlangıç")}</label><input type="date" name="baslangic" value="{kacir(bugun)}"></div>
+<div><label>{C("Bitiş")}</label><input type="date" name="bitis"></div>
 </div>
-<button>Takvime ekle</button></form>
-<p class="bos" style="margin-top:12px"><b>Etiketi nasıl seçmeli:</b> tekrar eden
-bir şeyse her yıl <u>aynı</u> etiketi yaz — "Fındık Toplama 2026" değil, sadece
-"Fındık Toplama". Program yılları birleştirip tek katsayı öğrenir. Yılda
-{tahmin_modulu.EN_AZ_ETIKET_GUN} günün altında kalan etiketler öğrenilemez.</p>
+<button>{C("Takvime ekle")}</button></form>
+<p class="bos" style="margin-top:12px">{etiket_ipucu}</p>
 </div>"""
 
 
@@ -2107,10 +2260,10 @@ def _gun_adi(tarih, bugun=None):
     bugun = bugun or datetime.date.today()
     fark = (tarih - bugun).days
     if fark <= 0:
-        return "bugün"
+        return C("bugün")
     if fark == 1:
-        return "yarın"
-    return tahmin_modulu.GUN_ADLARI[tarih.weekday()]
+        return C("yarın")
+    return C(tahmin_modulu.GUN_ADLARI[tarih.weekday()])
 
 
 def _gecis_simgesi(menu):
@@ -2120,43 +2273,46 @@ def _gecis_simgesi(menu):
 def _gecis_nedeni(plan):
     """'Cumartesi 14°, Pazar 15°, Pazartesi 13° — üç gün üst üste 17°C'nin altında'"""
     menu = plan["menu"]
-    gunler = ", ".join(f"{tahmin_modulu.GUN_ADLARI[tarih.weekday()]} {derece:.0f}°"
+    gunler = ", ".join(f"{C(tahmin_modulu.GUN_ADLARI[tarih.weekday()])} {derece:.0f}°"
                        for tarih, derece in plan["dizi"])
-    yon = "altında" if menu["kosul"] == "soguk" else "üstünde"
-    return (f"{gunler} — {len(plan['dizi'])} gün üst üste en yüksek sıcaklık "
-            f"{mik(menu['esik'], 1)}°C'nin {yon}.")
+    yon = C("altında") if menu["kosul"] == "soguk" else C("üstünde")
+    return C("{gunler} — {n} gün üst üste en yüksek sıcaklık {esik}°C'nin {yon}.",
+             gunler=gunler, n=len(plan['dizi']), esik=mik(menu['esik'], 1), yon=yon)
 
 
 def _gecis_dugmeleri(plan, plan_baglantisi=True):
     menu = plan["menu"]
     return (f'<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">'
             f'<form method="post" action="/menu-gec"><input type="hidden" name="id" '
-            f'value="{menu["id"]}"><button>Şimdi geç</button></form>'
-            + (f'<a class="ok-dugme" href="/menuler">Planın tamamı</a>' if plan_baglantisi else "")
+            f'value="{menu["id"]}"><button>{C("Şimdi geç")}</button></form>'
+            + (f'<a class="ok-dugme" href="/menuler">{C("Planın tamamı")}</a>' if plan_baglantisi else "")
             + f'<form method="post" action="/menu-ertele"><input type="hidden" name="id" '
-            f'value="{menu["id"]}"><button class="ikincil">Şimdi değil</button></form></div>')
+            f'value="{menu["id"]}"><button class="ikincil">{C("Şimdi değil")}</button></form></div>')
 
 
 def _gecis_ozeti(plan):
     """Ana menudeki kisa gecis uyarisi."""
     menu = plan["menu"]
     ne_zaman = _gun_adi(plan["tarih"])
-    satirlar = [f'<div class="detay">Neden: {kacir(_gecis_nedeni(plan))}</div>']
+    satirlar = [f'<div class="detay">{C("Neden")}: {kacir(_gecis_nedeni(plan))}</div>']
     uretilen = [k for k in plan["kapananlar"] if k["uretme"] and k["elde"] > 0]
     if uretilen:
         satirlar.append(
-            f'<div class="detay"><b>Kapanacak çeşitlerden yeni üretim yapma.</b> Elde '
+            f'<div class="detay"><b>{C("Kapanacak çeşitlerden yeni üretim yapma.")}</b> {C("Elde")} '
             + ", ".join(f"{kacir(k['kalem']['ad'])} {mik(k['elde'], 1)} {kacir(k['kalem']['birim'])}"
                         for k in sorted(uretilen, key=lambda k: -k["elde"])[:4])
-            + (f" ve {len(uretilen) - 4} çeşit daha" if len(uretilen) > 4 else "") + " var.</div>")
+            + (C(" ve {n} çeşit daha", n=len(uretilen) - 4) if len(uretilen) > 4 else "")
+            + f" {C('var.')}</div>")
     if plan["alinacaklar"]:
-        satirlar.append('<div class="detay">Almadan geçme: '
+        satirlar.append(f'<div class="detay">{C("Almadan geçme")}: '
                         + ", ".join(kacir(a["kalem"]["ad"]) for a in plan["alinacaklar"])
                         + "</div>")
-    sayilar = (f'{len(plan["kapananlar"])} ürün kapanacak, '
-               f'{len(plan["acilanlar"])} ürün açılacak.')
-    return (f'<div class="uyari mevsim"><b>{_gecis_simgesi(menu)} Menü geçişi önerisi: '
-            f'{kacir(menu["ad"])} — {kacir(ne_zaman)}</b><div class="detay">{sayilar}</div>'
+    sayilar = C("{kapanan} ürün kapanacak, {acilan} ürün açılacak.",
+                kapanan=len(plan["kapananlar"]), acilan=len(plan["acilanlar"]))
+    baslik = C("Menü geçişi önerisi: {ad} — {ne_zaman}",
+               ad=kacir(menu["ad"]), ne_zaman=kacir(ne_zaman))
+    return (f'<div class="uyari mevsim"><b>{_gecis_simgesi(menu)} {baslik}</b>'
+            f'<div class="detay">{sayilar}</div>'
             f'{"".join(satirlar)}{_gecis_dugmeleri(plan)}</div>')
 
 
@@ -2164,7 +2320,7 @@ def _gecis_plani_karti(plan):
     """Menuler sayfasindaki tam plan."""
     menu = plan["menu"]
     ne_zaman = _gun_adi(plan["tarih"])
-    ek = "" if ne_zaman in ("bugün", "yarın") else f" ({gun_yaz(plan['tarih'].isoformat(), False)})"
+    ek = "" if ne_zaman in (C("bugün"), C("yarın")) else f" ({gun_yaz(plan['tarih'].isoformat(), False)})"
 
     kapanan_satirlar = ""
     for k in sorted(plan["kapananlar"], key=lambda k: -k["elde"]):
@@ -2172,15 +2328,16 @@ def _gecis_plani_karti(plan):
         birim = kacir(kalem["birim"])
         biter = "—"
         if k["biter"] is not None and k["elde"] > 0:
-            biter = f"{mik(k['biter'], 1)} gün"
+            biter = C("{n} gün", n=mik(k['biter'], 1))
         gecmis = "—"
         if k["gecmis_gun"] >= menuler.EN_AZ_GECMIS:
             gecmis = (f"{mik(k['gecmis_ort'], 2)} {birim} "
-                      f"<span class='bos' style='font-size:13px'>(normalde "
-                      f"{mik(k['genel_ort'], 2)}, {k['gecmis_gun']} gün)</span>")
+                      f"<span class='bos' style='font-size:13px'>"
+                      + C("(normalde {ort}, {gun} gün)",
+                          ort=mik(k['genel_ort'], 2), gun=k['gecmis_gun']) + "</span>")
         kapanan_satirlar += (
             f"<tr><td>{kacir(kalem['ad'])}"
-            + (" <span class='rozet'>üretme</span>" if k["uretme"] and k["elde"] > 0 else "")
+            + (f" <span class='rozet'>{C('üretme')}</span>" if k["uretme"] and k["elde"] > 0 else "")
             + f"</td><td class='sag'>{mik(k['elde'], 1) + ' ' + birim if kalem['takip'] else '—'}</td>"
             f"<td class='sag'>{mik(k['gunluk'], 2)} {birim}</td><td class='sag'>{biter}</td>"
             f"<td class='sag'>{gecmis}</td></tr>")
@@ -2188,55 +2345,67 @@ def _gecis_plani_karti(plan):
     artacak_notu = ""
     if artacak and plan["kalan_gun"] > 0:
         artacak_notu = (
-            f'<p class="bos" style="margin-top:8px">Bugünkü satış hızıyla {plan["kalan_gun"]} '
-            f'günde bitmeyecekler: ' + ", ".join(
+            f'<p class="bos" style="margin-top:8px">'
+            + C("Bugünkü satış hızıyla {gun} günde bitmeyecekler: ", gun=plan["kalan_gun"])
+            + ", ".join(
                 f"{kacir(k['kalem']['ad'])} (~{mik(k['artacak'], 1)} {kacir(k['kalem']['birim'])})"
                 for k in sorted(artacak, key=lambda k: -k["artacak"])[:6])
-            + ". Geçişten sonra da satılabilirler; ürün kapanınca stoğu silinmez.</p>")
+            + C(". Geçişten sonra da satılabilirler; ürün kapanınca stoğu silinmez.") + "</p>")
 
     acilan = "".join(
         f"<tr><td>{kacir(a['kalem']['ad'])}</td><td class='sag'>"
         + (f"{mik(a['gunluk'], 1)} {kacir(a['kalem']['birim'])}" if a["gunluk"]
-           else "<span class='bos'>ilk kez açılıyor</span>") + "</td></tr>"
+           else f"<span class='bos'>{C('ilk kez açılıyor')}</span>") + "</td></tr>"
         for a in plan["acilanlar"])
 
     alinacak = "".join(
         f"<tr><td>{kacir(a['kalem']['ad'])}</td>"
         + (f"<td class='sag'>{mik(a['elde'], 2)}</td><td class='sag'><b>{mik(a['eksik'], 2)} "
            f"{kacir(a['kalem']['birim'])}</b></td>" if a["eksik"] is not None else
-           "<td class='sag'>0</td><td class='sag'><b>stokta yok</b></td>")
+           f"<td class='sag'>0</td><td class='sag'><b>{C('stokta yok')}</b></td>")
         + f"<td>{kacir(a['kalem']['tedarikci'])}</td></tr>"
         for a in plan["alinacaklar"])
 
     fiyat = "".join(
-        f"<li><b>{kacir(u['kalem']['ad'])}</b> son {menuler.FIYAT_GUN} günde "
-        f"{para(u['eski'])} → {para(u['yeni'])} (%{u['artis'] * 100:.0f} arttı) · "
-        f"{kacir(', '.join(u['urunler']))}</li>"
+        f"<li><b>{kacir(u['kalem']['ad'])}</b> "
+        + C("son {gun} günde {eski} → {yeni} (%{artis} arttı)",
+            gun=menuler.FIYAT_GUN, eski=para(u['eski']), yeni=para(u['yeni']),
+            artis=f"{u['artis'] * 100:.0f}")
+        + f" · {kacir(', '.join(u['urunler']))}</li>"
         for u in plan["fiyat_uyarilari"])
 
+    plan_baslik = C("Menü geçişi önerisi: {ad} — {ne_zaman}{ek}",
+                    ad=kacir(menu['ad']), ne_zaman=kacir(ne_zaman), ek=kacir(ek))
+    karar_not = C("Kararı sen verirsin. Geçince kapanan ürünler satış ve üretim "
+                  "ekranlarından kalkar; geçmiş kayıtları ve stokları silinmez.")
+    almadan_not = C("Açılacak ürünlerin ilk {gun} günü için. Geçen sefer satışı olan "
+                    "ürünlerde miktar o satıştan hesaplanır; ilk kez açılanda sadece "
+                    "stokta olmayan malzeme söylenir.", gun=menuler.ILK_HAFTA)
     return f"""
-<div class="kart tam"><h2>{_gecis_simgesi(menu)} Menü geçişi önerisi: {kacir(menu['ad'])}
-— {kacir(ne_zaman)}{kacir(ek)}</h2>
-<p><b>Neden:</b> {kacir(_gecis_nedeni(plan))}</p>
-<p class="bos">Kararı sen verirsin. Geçince kapanan ürünler satış ve üretim
-ekranlarından kalkar; geçmiş kayıtları ve stokları silinmez.</p>
+<div class="kart tam"><h2>{_gecis_simgesi(menu)} {plan_baslik}</h2>
+<p><b>{C("Neden")}:</b> {kacir(_gecis_nedeni(plan))}</p>
+<p class="bos">{karar_not}</p>
 {_gecis_dugmeleri(plan, plan_baglantisi=False)}
-<h3>Kapanacak ürünler ({len(plan['kapananlar'])})</h3>
+<h3>{C("Kapanacak ürünler ({n})", n=len(plan['kapananlar']))}</h3>
 <div style="overflow-x:auto"><table>
-<tr><th>Ürün</th><th class='sag'>Elde</th><th class='sag'>Son 14 gün, günde</th>
-<th class='sag'>Bitmesi</th><th class='sag'>Geçmişte bu havada, günde</th></tr>
-{kapanan_satirlar or "<tr><td class='bos' colspan='5'>Kapanacak ürün yok.</td></tr>"}
+<tr><th>{C("Ürün")}</th><th class='sag'>{C("Elde")}</th><th class='sag'>{C("Son 14 gün, günde")}</th>
+<th class='sag'>{C("Bitmesi")}</th><th class='sag'>{C("Geçmişte bu havada, günde")}</th></tr>
+{kapanan_satirlar or f"<tr><td class='bos' colspan='5'>{C('Kapanacak ürün yok.')}</td></tr>"}
 </table></div>{artacak_notu}
-<h3>Açılacak ürünler ({len(plan['acilanlar'])})</h3>
-<table><tr><th>Ürün</th><th class='sag'>Geçen sefer günde</th></tr>
-{acilan or "<tr><td class='bos' colspan='2'>Açılacak ürün yok.</td></tr>"}</table>
-<h3>Almadan geçme</h3>
-<p class="bos">Açılacak ürünlerin ilk {menuler.ILK_HAFTA} günü için. Geçen sefer satışı olan
-ürünlerde miktar o satıştan hesaplanır; ilk kez açılanda sadece stokta olmayan malzeme söylenir.</p>
-<table><tr><th>Malzeme</th><th class='sag'>Elde</th><th class='sag'>Al</th><th>Tedarikçi</th></tr>
-{alinacak or "<tr><td class='bos' colspan='4'>Eksik malzeme yok.</td></tr>"}</table>
-{f'<h3>Pahalanan malzemeler</h3><ul>{fiyat}</ul>' if fiyat else ''}
+<h3>{C("Açılacak ürünler ({n})", n=len(plan['acilanlar']))}</h3>
+<table><tr><th>{C("Ürün")}</th><th class='sag'>{C("Geçen sefer günde")}</th></tr>
+{acilan or f"<tr><td class='bos' colspan='2'>{C('Açılacak ürün yok.')}</td></tr>"}</table>
+<h3>{C("Almadan geçme")}</h3>
+<p class="bos">{almadan_not}</p>
+<table><tr><th>{C("Malzeme")}</th><th class='sag'>{C("Elde")}</th><th class='sag'>{C("Al")}</th><th>{C("Tedarikçi")}</th></tr>
+{alinacak or f"<tr><td class='bos' colspan='4'>{C('Eksik malzeme yok.')}</td></tr>"}</table>
+{f'<h3>{C("Pahalanan malzemeler")}</h3><ul>{fiyat}</ul>' if fiyat else ''}
 </div>"""
+
+
+def _kosullar():
+    """Menu gecis-kosulu secenekleri, etiketleri cevrili."""
+    return [(k, C(v)) for k, v in menuler.KOSULLAR]
 
 
 def _menu_formu(baglanti, menu, secili, urunler_gruplu, gecerli_id):
@@ -2248,29 +2417,31 @@ def _menu_formu(baglanti, menu, secili, urunler_gruplu, gecerli_id):
                               for k in grup)
                     + "</div>")
     gecerli_mi = menu["id"] == gecerli_id
-    rozet = " <span class='rozet ur'>şu an geçerli</span>" if gecerli_mi else ""
+    rozet = f" <span class='rozet ur'>{C('şu an geçerli')}</span>" if gecerli_mi else ""
     gec_dugmesi = "" if gecerli_mi else (
         f'<form method="post" action="/menu-gec" style="display:inline">'
         f'<input type="hidden" name="id" value="{menu["id"]}">'
-        f'<button class="ikincil">Bu menüye şimdi geç</button></form>')
+        f'<button class="ikincil">{C("Bu menüye şimdi geç")}</button></form>')
+    menu_urun_not = C("Bu menüde satılan ürünleri işaretle. Hiçbir menüde işaretli "
+                      "olmayan ürün her zaman satılır. Malzemeleri işaretlemen "
+                      "gerekmez: sadece kapanan ürünlerde geçen malzeme (bir çeşidin "
+                      "aroması gibi) ürünle birlikte kendiliğinden kapanır.")
     return f"""
 <div class="kart"><h2>{kacir(menu['ad'])}{rozet}</h2>
 <form method="post" action="/menu-kaydet">
 <input type="hidden" name="id" value="{menu['id']}">
 <div class="satir">
-<div><label>Menünün adı</label><input type="text" name="ad" value="{kacir(menu['ad'])}" required></div>
-<div><label>Geçiş önerisi</label>{secim("kosul", menuler.KOSULLAR, menu["kosul"])}</div>
-<div><label>Eşik (en yüksek sıcaklık, °C)</label>{sayi_alani("esik", mik(menu["esik"], 1))}</div>
+<div><label>{C("Menünün adı")}</label><input type="text" name="ad" value="{kacir(menu['ad'])}" required></div>
+<div><label>{C("Geçiş önerisi")}</label>{secim("kosul", _kosullar(), menu["kosul"])}</div>
+<div><label>{C("Eşik (en yüksek sıcaklık, °C)")}</label>{sayi_alani("esik", mik(menu["esik"], 1))}</div>
 </div>
-<p class="bos">Bu menüde satılan ürünleri işaretle. Hiçbir menüde işaretli olmayan ürün her
-zaman satılır. Malzemeleri işaretlemen gerekmez: sadece kapanan ürünlerde geçen malzeme
-(bir çeşidin aroması gibi) ürünle birlikte kendiliğinden kapanır.</p>
+<p class="bos">{menu_urun_not}</p>
 {kutular}
-<div style="margin-top:14px"><button>Kaydet</button></div></form>
+<div style="margin-top:14px"><button>{C("Kaydet")}</button></div></form>
 <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">{gec_dugmesi}
 <form method="post" action="/menu-sil" style="display:inline">
 <input type="hidden" name="id" value="{menu['id']}">
-<button class="sil">Menüyü sil</button></form></div></div>"""
+<button class="sil">{C("Menüyü sil")}</button></form></div></div>"""
 
 
 def sayfa_menuler(baglanti, sorgu):
@@ -2280,29 +2451,34 @@ def sayfa_menuler(baglanti, sorgu):
     plan = menuler.oneri(baglanti)
 
     if gecerli:
-        durum = (f"<p>Şu an <b>{kacir(gecerli['ad'])}</b> geçerli — "
-                 f"{kacir(gun_yaz(gecis['tarih'], False))} tarihinden beri.</p>")
+        durum = (f"<p>" + C("Şu an <b>{ad}</b> geçerli — {tarih} tarihinden beri.",
+                             ad=kacir(gecerli['ad']),
+                             tarih=kacir(gun_yaz(gecis['tarih'], False))) + "</p>")
     elif liste:
-        durum = "<p class='bos'>Henüz hiçbir menüye geçilmedi; bütün ürünler olduğu gibi duruyor.</p>"
+        durum = f"<p class='bos'>{C('Henüz hiçbir menüye geçilmedi; bütün ürünler olduğu gibi duruyor.')}</p>"
     else:
         durum = ""
     gecmis = menuler.gecisler(baglanti)
     gecmis_html = ""
     if len(gecmis) > 1:
-        gecmis_html = ("<h3>Geçmiş geçişler</h3><table>"
+        gecmis_html = (f"<h3>{C('Geçmiş geçişler')}</h3><table>"
                        + "".join(f"<tr><td>{kacir(gun_yaz(g['tarih'], False))}</td>"
                                  f"<td>{kacir(g['ad'])}</td></tr>" for g in gecmis)
                        + "</table>")
 
+    menu_tanitim1 = C("Mevsime göre değişen menüler: dondurmacının yaz ve kış menüsü, "
+                      "lokantanın yaz ve kış sebzeleri. Menüye geçince o menüde olmayan "
+                      "ürünler satış, sayım ve üretim ekranlarından kalkar; geri dönünce "
+                      "yerine gelir. Hiçbir kayıt silinmez.")
+    menu_tanitim2 = C('Bir menüye "hava soğuyunca öner" dersen program 7 günlük hava '
+                      "tahminine bakar: en yüksek sıcaklık {gun} gün üst üste eşiğin "
+                      "altına inecekse ana menüde bir geçiş planı çıkarır — hangi gün, "
+                      "kapanacak ürünlerden elde ne kaldığı, ne alınması gerektiği. "
+                      "Geçişi sen yaparsın.", gun=menuler.GUN_ARDISIK)
     tanitim = f"""
-<div class="kart tam"><h2>Menü dönemleri</h2>
-<p class="bos">Mevsime göre değişen menüler: dondurmacının yaz ve kış menüsü, lokantanın yaz ve
-kış sebzeleri. Menüye geçince o menüde olmayan ürünler satış, sayım ve üretim ekranlarından
-kalkar; geri dönünce yerine gelir. Hiçbir kayıt silinmez.</p>
-<p class="bos">Bir menüye "hava soğuyunca öner" dersen program 7 günlük hava tahminine bakar:
-en yüksek sıcaklık {menuler.GUN_ARDISIK} gün üst üste eşiğin altına inecekse ana menüde bir
-geçiş planı çıkarır — hangi gün, kapanacak ürünlerden elde ne kaldığı, ne alınması gerektiği.
-Geçişi sen yaparsın.</p>
+<div class="kart tam"><h2>{C("Menü dönemleri")}</h2>
+<p class="bos">{menu_tanitim1}</p>
+<p class="bos">{menu_tanitim2}</p>
 {durum}{gecmis_html}</div>"""
 
     urunler = menuler.secilebilir_urunler(baglanti)
@@ -2313,14 +2489,14 @@ Geçişi sen yaparsın.</p>
         for m in liste)
 
     yeni = f"""
-<div class="kart"><h2>Yeni menü</h2>
+<div class="kart"><h2>{C("Yeni menü")}</h2>
 <form method="post" action="/menu-ekle"><div class="satir">
-<div><label>Menünün adı</label><input type="text" name="ad" placeholder="Kış menüsü" required></div>
-<div><label>Geçiş önerisi</label>{secim("kosul", menuler.KOSULLAR, "")}</div>
-<div><label>Eşik (en yüksek sıcaklık, °C)</label>{sayi_alani("esik", "17")}</div>
+<div><label>{C("Menünün adı")}</label><input type="text" name="ad" placeholder="{C('Kış menüsü')}" required></div>
+<div><label>{C("Geçiş önerisi")}</label>{secim("kosul", _kosullar(), "")}</div>
+<div><label>{C("Eşik (en yüksek sıcaklık, °C)")}</label>{sayi_alani("esik", "17")}</div>
 </div>
-<div class="roller">{kutucuk("simdiki", True, "Şu an satılan ürünlerle başlasın")}</div>
-<button>Menüyü ekle</button></form></div>"""
+<div class="roller">{kutucuk("simdiki", True, C("Şu an satılan ürünlerle başlasın"))}</div>
+<button>{C("Menüyü ekle")}</button></form></div>"""
 
     return tanitim + (_gecis_plani_karti(plan) if plan else "") + kartlar + yeni
 
@@ -2328,9 +2504,9 @@ Geçişi sen yaparsın.</p>
 def islem_menu_ekle(baglanti, veri):
     ad = veri.get("ad", [""])[0].strip()
     if not ad:
-        return "/menuler", "!Menünün adını yaz."
+        return "/menuler", "!" + C("Menünün adını yaz.")
     if baglanti.execute("SELECT 1 FROM menuler WHERE ad = ?", (ad,)).fetchone():
-        return "/menuler", f"!{ad} adında bir menü zaten var."
+        return "/menuler", "!" + C("{ad} adında bir menü zaten var.", ad=ad)
     urunler = []
     if "simdiki" in veri:
         urunler = [satir[0] for satir in baglanti.execute(
@@ -2338,19 +2514,19 @@ def islem_menu_ekle(baglanti, veri):
     kosul = veri.get("kosul", [""])[0]
     menuler.ekle(baglanti, ad, kosul if kosul in dict(menuler.KOSULLAR) else "",
                  sayi(veri.get("esik", ["0"])[0]), urunler)
-    return "/menuler", f"{ad} eklendi. Ürünlerini işaretleyip kaydet."
+    return "/menuler", C("{ad} eklendi. Ürünlerini işaretleyip kaydet.", ad=ad)
 
 
 def islem_menu_kaydet(baglanti, veri):
     menu_id = int(sayi(veri.get("id", ["0"])[0]))
     ad = veri.get("ad", [""])[0].strip()
     if menuler.menu(baglanti, menu_id) is None:
-        return "/menuler", "!Menü bulunamadı."
+        return "/menuler", "!" + C("Menü bulunamadı.")
     if not ad:
-        return "/menuler", "!Menünün adını yaz."
+        return "/menuler", "!" + C("Menünün adını yaz.")
     if baglanti.execute("SELECT 1 FROM menuler WHERE ad = ? AND id <> ?",
                         (ad, menu_id)).fetchone():
-        return "/menuler", f"!{ad} adında başka bir menü var."
+        return "/menuler", "!" + C("{ad} adında başka bir menü var.", ad=ad)
     urunler = [kimlik for anahtar in veri
                if (kimlik := alan_kimligi(anahtar, "urun_")) is not None]
     kosul = veri.get("kosul", [""])[0]
@@ -2361,31 +2537,32 @@ def islem_menu_kaydet(baglanti, veri):
     if gecerli and gecerli["id"] == menu_id:
         menuler.uygula(baglanti, menu_id)
         baglanti.commit()
-    return "/menuler", f"{ad} kaydedildi."
+    return "/menuler", C("{ad} kaydedildi.", ad=ad)
 
 
 def islem_menu_gec(baglanti, veri):
     menu_id = int(sayi(veri.get("id", ["0"])[0]))
     menu = menuler.menu(baglanti, menu_id)
     if menu is None:
-        return "/menuler", "!Menü bulunamadı."
+        return "/menuler", "!" + C("Menü bulunamadı.")
     sonuc = menuler.gec(baglanti, menu_id)
-    return "/", (f"{menu['ad']} geçerli: {len(sonuc['kapanan'])} ürün kapandı, "
-                 f"{len(sonuc['acilan'])} ürün açıldı.")
+    return "/", C("{ad} geçerli: {kapanan} ürün kapandı, {acilan} ürün açıldı.",
+                  ad=menu['ad'], kapanan=len(sonuc['kapanan']),
+                  acilan=len(sonuc['acilan']))
 
 
 def islem_menu_ertele(baglanti, veri):
     menuler.ertele(baglanti, int(sayi(veri.get("id", ["0"])[0])))
-    return "/", f"Tamam, {menuler.ERTELE_GUN} gün sormayacağım."
+    return "/", C("Tamam, {gun} gün sormayacağım.", gun=menuler.ERTELE_GUN)
 
 
 def islem_menu_sil(baglanti, veri):
     menu_id = int(sayi(veri.get("id", ["0"])[0]))
     menu = menuler.menu(baglanti, menu_id)
     if menu is None:
-        return "/menuler", "!Menü bulunamadı."
+        return "/menuler", "!" + C("Menü bulunamadı.")
     menuler.sil(baglanti, menu_id)
-    return "/menuler", f"{menu['ad']} silindi. Ürünler olduğu gibi duruyor."
+    return "/menuler", C("{ad} silindi. Ürünler olduğu gibi duruyor.", ad=menu['ad'])
 
 
 # ---------------------------------------------------------------- kalemler
@@ -2409,29 +2586,31 @@ def sayfa_kalemler(baglanti, sorgu):
                 f"<td class='sag'><a href='/kalem?id={kalem['id']}'>düzenle</a></td></tr>"
             )
     if not satirlar:
-        satirlar = "<tr><td class='bos' colspan='6'>Henüz kalem yok.</td></tr>"
+        satirlar = f"<tr><td class='bos' colspan='6'>{C('Henüz kalem yok.')}</td></tr>"
 
+    yeni_kalem_not = C("Dükkanda adı, birimi ve stoğu olan her şey bir kalemdir: un da, "
+                       "hamur da, ekmek de. Ne olduğunu işaretlediğin kutucuklar belirler.")
+    tum_kalem_not = C("Türe göre gruplanmış. Tür sadece düzen içindir, hiçbir hesaba "
+                      "girmez — istediğin başlığı yazabilirsin.")
     return f"""
-<div class="kart"><h2>Yeni kalem ekle</h2>
-<p class="bos">Dükkanda adı, birimi ve stoğu olan her şey bir kalemdir: un da,
-hamur da, ekmek de. Ne olduğunu işaretlediğin kutucuklar belirler.</p>
+<div class="kart"><h2>{C("Yeni kalem ekle")}</h2>
+<p class="bos">{yeni_kalem_not}</p>
 <form method="post" action="/kalem-ekle"><div class="satir">
-<div><label>Adı</label><input type="text" name="ad" placeholder="Un" required></div>
-<div><label>Birimi</label><input type="text" name="birim" placeholder="kg" value="adet"></div>
-<div><label>Türü (listeleri gruplar)</label>{tur_alani(baglanti)}</div>
+<div><label>{C("Adı")}</label><input type="text" name="ad" placeholder="{C('Un')}" required></div>
+<div><label>{C("Birimi")}</label><input type="text" name="birim" placeholder="kg" value="{C('adet')}"></div>
+<div><label>{C("Türü (listeleri gruplar)")}</label>{tur_alani(baglanti)}</div>
 </div>
 <div class="roller">
-{kutucuk("alinir", True, "Satın alınır")}
-{kutucuk("uretilir", False, "Üretilir (reçetesi var)")}
-{kutucuk("satilir", False, "Satılır")}
+{kutucuk("alinir", True, C("Satın alınır"))}
+{kutucuk("uretilir", False, C("Üretilir (reçetesi var)"))}
+{kutucuk("satilir", False, C("Satılır"))}
 </div>
-<button>Ekle ve düzenlemeye geç</button></form></div>
+<button>{C("Ekle ve düzenlemeye geç")}</button></form></div>
 
-<div class="kart"><h2>Bütün kalemler</h2>
-<p class="bos">Türe göre gruplanmış. Tür sadece düzen içindir, hiçbir hesaba girmez —
-istediğin başlığı yazabilirsin.</p><table>
-<tr><th>Kalem</th><th class='sag'>Birim</th><th class='sag'>Alış</th>
-<th class='sag'>Satış</th><th class='sag'>Stok</th><th></th></tr>
+<div class="kart"><h2>{C("Bütün kalemler")}</h2>
+<p class="bos">{tum_kalem_not}</p><table>
+<tr><th>{C("Kalem")}</th><th class='sag'>{C("Birim")}</th><th class='sag'>{C("Alış")}</th>
+<th class='sag'>{C("Satış")}</th><th class='sag'>{C("Stok")}</th><th></th></tr>
 {satirlar}</table></div>"""
 
 
@@ -2443,72 +2622,80 @@ SAYIM_TARZLARI = [
 ]
 
 
+def _sayim_tarzlari():
+    return [(k, C(v)) for k, v in SAYIM_TARZLARI]
+
+
 def sayfa_kalem(baglanti, sorgu):
     kalem_id = int(sayi(sorgu.get("id", ["0"])[0]))
     kalem = hesap.kalem(baglanti, kalem_id)
     if kalem is None:
-        return '<div class="kart"><p class="bos">Kalem bulunamadı.</p></div>'
+        return f'<div class="kart"><p class="bos">{C("Kalem bulunamadı.")}</p></div>'
 
     stok = hesap.stoklar(baglanti).get(kalem_id, 0.0)
+    para_ad = kacir(para_birimi())
+    ust_bilgi = C("{rozet} · stokta {stok} {birim} · birim maliyeti {maliyet}",
+                  rozet=rozetler(kalem), stok=mik(stok), birim=kacir(kalem['birim']),
+                  maliyet=para(hesap.birim_maliyet(baglanti, kalem_id)))
+    dagit_et = C("Satılmaz ama harcanır — tutarını günün satışlarına paylaştır "
+                 "(kaşık, peçete)")
     return f"""
 <div class="kart"><h2>{kacir(kalem['ad'])}</h2>
-<p class="bos">{rozetler(kalem)} · stokta {mik(stok)} {kacir(kalem['birim'])} ·
-birim maliyeti {para(hesap.birim_maliyet(baglanti, kalem_id))}</p>
+<p class="bos">{ust_bilgi}</p>
 <form method="post" action="/kalem-kaydet">
 <input type="hidden" name="id" value="{kalem_id}">
 <div class="satir">
-<div><label>Adı</label><input type="text" name="ad" value="{kacir(kalem['ad'])}" required></div>
-<div><label>Birimi</label><input type="text" name="birim" value="{kacir(kalem['birim'])}"></div>
-<div><label>Türü (listeleri gruplar)</label>{tur_alani(baglanti, kalem['tur'])}</div>
-<div><label>Sıra (küçük olan üstte)</label>{sayi_alani("sira", mik(kalem['sira']))}</div>
+<div><label>{C("Adı")}</label><input type="text" name="ad" value="{kacir(kalem['ad'])}" required></div>
+<div><label>{C("Birimi")}</label><input type="text" name="birim" value="{kacir(kalem['birim'])}"></div>
+<div><label>{C("Türü (listeleri gruplar)")}</label>{tur_alani(baglanti, kalem['tur'])}</div>
+<div><label>{C("Sıra (küçük olan üstte)")}</label>{sayi_alani("sira", mik(kalem['sira']))}</div>
 </div>
 <div class="roller">
-{kutucuk("alinir", kalem["alinir"], "Satın alınır")}
-{kutucuk("uretilir", kalem["uretilir"], "Üretilir (reçetesi üretimde düşer)")}
-{kutucuk("satilir", kalem["satilir"], "Satılır")}
-{kutucuk("takip", kalem["takip"], "Stoğu tutulsun")}
-{kutucuk("aktif", kalem["aktif"], "Kullanımda")}
+{kutucuk("alinir", kalem["alinir"], C("Satın alınır"))}
+{kutucuk("uretilir", kalem["uretilir"], C("Üretilir (reçetesi üretimde düşer)"))}
+{kutucuk("satilir", kalem["satilir"], C("Satılır"))}
+{kutucuk("takip", kalem["takip"], C("Stoğu tutulsun"))}
+{kutucuk("aktif", kalem["aktif"], C("Kullanımda"))}
 </div>
 <div class="satir">
-<div><label>Alış fiyatı (bir {kacir(kalem['birim'])} için, {kacir(para_birimi())})</label>
+<div><label>{C("Alış fiyatı (bir {birim} için, {para})", birim=kacir(kalem['birim']), para=para_ad)}</label>
      {sayi_alani("birim_fiyat", f"{kalem['birim_fiyat']:.2f}", min="0")}</div>
-<div><label>Satış fiyatı (bir {kacir(kalem['birim'])} için, {kacir(para_birimi())})</label>
+<div><label>{C("Satış fiyatı (bir {birim} için, {para})", birim=kacir(kalem['birim']), para=para_ad)}</label>
      {sayi_alani("fiyat", f"{kalem['fiyat']:.2f}", min="0")}</div>
-<div><label>Kritik seviye (altına düşünce uyarır)</label>
+<div><label>{C("Kritik seviye (altına düşünce uyarır)")}</label>
      {sayi_alani("kritik_seviye", mik(kalem['kritik_seviye']), min="0")}</div>
 </div>
 <div class="satir">
-<div><label>Toplu kabın adı</label>
-     <input type="text" name="koli_ad" value="{kacir(kalem['koli_ad'])}" placeholder="koli"></div>
-<div><label>Bir {kacir(kalem['koli_ad'])} kaç {kacir(kalem['birim'])}</label>
+<div><label>{C("Toplu kabın adı")}</label>
+     <input type="text" name="koli_ad" value="{kacir(kalem['koli_ad'])}" placeholder="{C('koli')}"></div>
+<div><label>{C("Bir {koli} kaç {birim}", koli=kacir(kalem['koli_ad']), birim=kacir(kalem['birim']))}</label>
      {sayi_alani("koli_adet", mik(kalem['koli_adet']), min="0")}</div>
-<div><label>Tedarikçi</label>
+<div><label>{C("Tedarikçi")}</label>
      <input type="text" name="tedarikci" value="{kacir(kalem['tedarikci'])}"></div>
 </div>
 <div class="satir">
-<div><label>Gün sonu sayımı</label>{secim("sayim_tarzi", SAYIM_TARZLARI, kalem["sayim_tarzi"])}</div>
-<div><label>Açıklama (sadece ekranda görünür)</label>
+<div><label>{C("Gün sonu sayımı")}</label>{secim("sayim_tarzi", _sayim_tarzlari(), kalem["sayim_tarzi"])}</div>
+<div><label>{C("Açıklama (sadece ekranda görünür)")}</label>
      <input type="text" name="aciklama" value="{kacir(kalem['aciklama'])}"></div>
 </div>
-<div class="roller">{kutucuk("dagit", kalem["dagit"],
-    "Satılmaz ama harcanır — tutarını günün satışlarına paylaştır (kaşık, peçete)")}</div>
-<button>Kaydet</button></form>
+<div class="roller">{kutucuk("dagit", kalem["dagit"], dagit_et)}</div>
+<button>{C("Kaydet")}</button></form>
 <form method="post" action="/kalem-sil" style="margin-top:10px">
 <input type="hidden" name="id" value="{kalem_id}">
-<button class="sil">Bu kalemi sil</button></form></div>
+<button class="sil">{C("Bu kalemi sil")}</button></form></div>
 {_recete_karti(baglanti, kalem)}"""
 
 
 def _recete_karti(baglanti, kalem):
     """Kalemin recetelerini duzenleme karti."""
     if kalem["uretilir"]:
-        aciklama = ("Bu kalem üretiliyor: aşağıdaki malzemeler <b>üretim girdiğinde</b> "
-                    "stoktan düşer. Birden fazla reçete yazabilirsin — dondurmada olduğu "
-                    "gibi aynı stoğa farklı karışımlar akabilir.")
+        aciklama = C("Bu kalem üretiliyor: aşağıdaki malzemeler <b>üretim girdiğinde</b> "
+                     "stoktan düşer. Birden fazla reçete yazabilirsin — dondurmada "
+                     "olduğu gibi aynı stoğa farklı karışımlar akabilir.")
     else:
-        aciklama = ("Bu kalem üretilmiyor: aşağıdaki malzemeler <b>her satışta</b> "
-                    "stoktan düşer. Külahın içine konan dondurma, porsiyonun içine giren "
-                    "et böyle yazılır.")
+        aciklama = C("Bu kalem üretilmiyor: aşağıdaki malzemeler <b>her satışta</b> "
+                     "stoktan düşer. Külahın içine konan dondurma, porsiyonun içine "
+                     "giren et böyle yazılır.")
 
     baskalari = [k for k in hesap.kalemler(baglanti, sadece_aktif=False)
                  if k["id"] != kalem["id"]]
@@ -2531,53 +2718,52 @@ def _recete_karti(baglanti, kalem):
                 f"<td>{kacir(satir['birim'])}</td>"
                 f"<td class='sag'>{para(satir['miktar'] * birim_maliyet)}</td>"
                 f"<td class='sag'><button class='sil' formaction='/recete-satir-sil' "
-                f"name='satir_id' value='{satir['id']}'>çıkar</button></td></tr>"
+                f"name='satir_id' value='{satir['id']}'>{C('çıkar')}</button></td></tr>"
             )
         if not satirlar:
-            satirlar = "<tr><td class='bos' colspan='5'>Reçete boş.</td></tr>"
+            satirlar = f"<tr><td class='bos' colspan='5'>{C('Reçete boş.')}</td></tr>"
 
         birim = (toplam / recete["verim"]) if recete["verim"] else 0.0
-        baslik = recete["ad"] or "Reçete"
+        baslik = recete["ad"] or C("Reçete")
         kartlar += f"""
 <div class="kart" style="background:#fafbfc">
 <h3 style="margin-top:0">{kacir(baslik)}</h3>
 <form method="post" action="/recete-kaydet">
 <input type="hidden" name="recete_id" value="{recete['id']}">
 <div class="satir">
-<div><label>Reçetenin adı</label>
-     <input type="text" name="ad" value="{kacir(recete['ad'])}" placeholder="Sade"></div>
-<div><label>Bir üretime verdiğin ad</label>
-     <input type="text" name="parti_ad" value="{kacir(recete['parti_ad'])}" placeholder="kazan"></div>
-<div><label>1 {kacir(recete['parti_ad'])} kaç {kacir(kalem['birim'])} çıkarır</label>
+<div><label>{C("Reçetenin adı")}</label>
+     <input type="text" name="ad" value="{kacir(recete['ad'])}" placeholder="{C('Sade')}"></div>
+<div><label>{C("Bir üretime verdiğin ad")}</label>
+     <input type="text" name="parti_ad" value="{kacir(recete['parti_ad'])}" placeholder="{C('kazan')}"></div>
+<div><label>{C("1 {parti} kaç {birim} çıkarır", parti=kacir(recete['parti_ad']), birim=kacir(kalem['birim']))}</label>
      {sayi_alani("verim", mik(recete['verim'], 4), min="0")}</div>
 </div>
-<table><tr><th>Malzeme</th><th>Miktar</th><th>Birim</th><th class='sag'>Tutar</th><th></th></tr>
+<table><tr><th>{C("Malzeme")}</th><th>{C("Miktar")}</th><th>{C("Birim")}</th><th class='sag'>{C("Tutar")}</th><th></th></tr>
 {satirlar}
-<tr><th>TOPLAM</th><th colspan='2'></th><th class='sag'>{para(toplam)}</th><th></th></tr>
+<tr><th>{C("TOPLAM")}</th><th colspan='2'></th><th class='sag'>{para(toplam)}</th><th></th></tr>
 </table>
-<p class="bos" style="margin:10px 0">Çıkan bir {kacir(kalem['birim'])}
-başına malzeme maliyeti: <b>{para(birim)}</b></p>
-<button>Reçeteyi kaydet</button>
-<button class="sil" formaction="/recete-sil">reçeteyi sil</button>
+<p class="bos" style="margin:10px 0">{C("Çıkan bir {birim} başına malzeme maliyeti: <b>{maliyet}</b>", birim=kacir(kalem['birim']), maliyet=para(birim))}</p>
+<button>{C("Reçeteyi kaydet")}</button>
+<button class="sil" formaction="/recete-sil">{C("reçeteyi sil")}</button>
 </form>
 <form method="post" action="/recete-satir-ekle" style="margin-top:12px">
 <input type="hidden" name="recete_id" value="{recete['id']}">
 <div class="satir">
-<div><label>Malzeme ekle</label>{gruplu_secim("kalem_id", malzeme_gruplari)}</div>
-<div><label>Miktar</label>{sayi_alani("miktar", min="0")}</div>
-<div style="align-self:end"><button class="ikincil">Satır ekle</button></div>
+<div><label>{C("Malzeme ekle")}</label>{gruplu_secim("kalem_id", malzeme_gruplari)}</div>
+<div><label>{C("Miktar")}</label>{sayi_alani("miktar", min="0")}</div>
+<div style="align-self:end"><button class="ikincil">{C("Satır ekle")}</button></div>
 </div></form></div>"""
 
     if not kartlar:
-        kartlar = '<p class="bos">Bu kalemin reçetesi yok.</p>'
+        kartlar = f'<p class="bos">{C("Bu kalemin reçetesi yok.")}</p>'
 
     return f"""
-<div class="kart"><h2>Reçete</h2>
+<div class="kart"><h2>{C("Reçete")}</h2>
 <p class="bos">{aciklama}</p>
 {kartlar}
 <form method="post" action="/recete-ekle" style="margin-top:10px">
 <input type="hidden" name="urun_id" value="{kalem['id']}">
-<button class="ikincil">Yeni reçete ekle</button></form></div>"""
+<button class="ikincil">{C("Yeni reçete ekle")}</button></form></div>"""
 
 
 # ---------------------------------------------------------------- ayarlar
@@ -2599,54 +2785,56 @@ def sayfa_ayarlar(baglanti, sorgu):
                 f"<td>{sayi_alani('kritik_' + str(kalem['id']), mik(kalem['kritik_seviye']), min='0')}</td>"
                 f"</tr>"
             )
-    fiyat_satirlari = fiyat_satirlari or "<tr><td class='bos' colspan='4'>Henüz kalem yok.</td></tr>"
+    fiyat_satirlari = fiyat_satirlari or f"<tr><td class='bos' colspan='4'>{C('Henüz kalem yok.')}</td></tr>"
 
     modlar = [
-        ("sayim", "Gün sonu sayımı (rafta kalanı sayarım)"),
-        ("dogrudan", "Doğrudan satış girişi (kaç sattığımı yazarım)"),
-        ("ikisi", "İkisi de dursun, sekmeyle geçeyim"),
+        ("sayim", C("Gün sonu sayımı (rafta kalanı sayarım)")),
+        ("dogrudan", C("Doğrudan satış girişi (kaç sattığımı yazarım)")),
+        ("ikisi", C("İkisi de dursun, sekmeyle geçeyim")),
     ]
 
+    urun_not = C("Yeni ürün eklemek, reçete yazmak, bir kalemin birimini ya da "
+                 "kolisini değiştirmek için burası.")
+    fiyat_not = C("Hepsini tek ekrandan güncellemek için. Alım girdiğinde alış fiyatı "
+                  "zaten kendiliğinden güncellenir. Bir kalemin diğer ayarları için "
+                  '<a href="/kalemler">Ürün &amp; Malzeme</a> sayfasına git.')
     return f"""
-<div class="kart"><h2>Ürün ve malzemeler</h2>
-<p class="bos">Yeni ürün eklemek, reçete yazmak, bir kalemin birimini ya da
-kolisini değiştirmek için burası.</p>
+<div class="kart"><h2>{C("Ürün ve malzemeler")}</h2>
+<p class="bos">{urun_not}</p>
 <p style="margin:12px 0 0"><a class="sablon" href="/kalemler">
-<b>Ürün &amp; Malzeme sayfasını aç</b>
-Kalem listesi, reçeteler ve satış şekilleri</a></p>
+<b>{C("Ürün &amp; Malzeme sayfasını aç")}</b>
+{C("Kalem listesi, reçeteler ve satış şekilleri")}</a></p>
 <p style="margin:12px 0 0"><a class="sablon" href="/menuler">
-<b>Menü dönemlerini aç</b>
-Yaz ve kış menüsü, mevsim geçişi ve geçiş önerisi</a></p></div>
+<b>{C("Menü dönemlerini aç")}</b>
+{C("Yaz ve kış menüsü, mevsim geçişi ve geçiş önerisi")}</a></p></div>
 
-<div class="kart"><h2>Genel ayarlar</h2>
+<div class="kart"><h2>{C("Genel ayarlar")}</h2>
 <form method="post" action="/ayarlar"><div class="satir">
-<div><label>Dükkan adı</label><input type="text" name="dukkan_adi"
+<div><label>{C("Dükkan adı")}</label><input type="text" name="dukkan_adi"
      value="{kacir(ayar(baglanti, 'dukkan_adi'))}"></div>
-<div><label>Para birimi</label><input type="text" name="para_birimi"
+<div><label>{C("Para birimi")}</label><input type="text" name="para_birimi"
      value="{kacir(ayar(baglanti, 'para_birimi', 'TL'))}"></div>
-<div><label>Satış nasıl girilsin</label>
+<div><label>{C("Satış nasıl girilsin")}</label>
      {secim("satis_girisi", modlar, ayar(baglanti, "satis_girisi", "ikisi"))}</div>
 </div><div class="satir">
-<div><label>Kaç günlük kalınca uyarayım</label>
+<div><label>{C("Kaç günlük kalınca uyarayım")}</label>
      {sayi_alani("uyari_gun", kacir(ayar(baglanti, "uyari_gun", "2")), min="0")}</div>
-<div><label>Alırken kaç günlük alınsın</label>
+<div><label>{C("Alırken kaç günlük alınsın")}</label>
      {sayi_alani("dolum_gun", kacir(ayar(baglanti, "dolum_gun", "7")), min="1")}</div>
-<div><label>Günlük tüketim kaç günün ortalaması olsun</label>
+<div><label>{C("Günlük tüketim kaç günün ortalaması olsun")}</label>
      {sayi_alani("ortalama_gun", kacir(ayar(baglanti, "ortalama_gun")), min="1")}</div>
-</div><button>Ayarları kaydet</button></form></div>
+</div><button>{C("Ayarları kaydet")}</button></form></div>
 
 {_hava_ayar_karti(baglanti)}
 
 {_guvenlik_karti(baglanti)}
 
-<div class="kart"><h2>Fiyatlar</h2>
-<p class="bos">Hepsini tek ekrandan güncellemek için. Alım girdiğinde alış fiyatı zaten
-kendiliğinden güncellenir. Bir kalemin diğer ayarları için
-<a href="/kalemler">Ürün &amp; Malzeme</a> sayfasına git.</p>
+<div class="kart"><h2>{C("Fiyatlar")}</h2>
+<p class="bos">{fiyat_not}</p>
 <form method="post" action="/ayarlar"><table>
-<tr><th>Kalem</th><th>Alış fiyatı</th><th>Satış fiyatı</th><th>Kritik seviye</th></tr>
+<tr><th>{C("Kalem")}</th><th>{C("Alış fiyatı")}</th><th>{C("Satış fiyatı")}</th><th>{C("Kritik seviye")}</th></tr>
 {fiyat_satirlari}</table>
-<div style="margin-top:14px"><button>Fiyatları kaydet</button></div></form></div>"""
+<div style="margin-top:14px"><button>{C("Fiyatları kaydet")}</button></div></form></div>"""
 
 
 def _guvenlik_karti(baglanti):
@@ -2655,40 +2843,44 @@ def _guvenlik_karti(baglanti):
 
     if kisi:
         ad = kacir(kisi["ad"] or kisi["eposta"])
+        hesap_detay = C("Kullanıcı adın: <b>{eposta}</b> &nbsp;·&nbsp; Dükkanın: "
+                        "<b>{dukkan}</b><br>Bu dükkanın kayıtları kendi dosyasında "
+                        "tutulur; başka hiçbir dükkan onları göremez, sen de başka "
+                        "dükkanınkini göremezsin.",
+                        eposta=kacir(kisi["eposta"]), dukkan=kacir(kisi["dukkan_adi"]))
         return f"""
-<div class="kart"><h2>Hesabın</h2>
-<div class="uyari yakin"><b>{ad} olarak girdin</b>
-<div class="detay">Kullanıcı adın: <b>{kacir(kisi["eposta"])}</b> &nbsp;·&nbsp;
-Dükkanın: <b>{kacir(kisi["dukkan_adi"])}</b><br>
-Bu dükkanın kayıtları kendi dosyasında tutulur; başka hiçbir dükkan onları
-göremez, sen de başka dükkanınkini göremezsin.</div></div>
+<div class="kart"><h2>{C("Hesabın")}</h2>
+<div class="uyari yakin"><b>{C("{ad} olarak girdin", ad=ad)}</b>
+<div class="detay">{hesap_detay}</div></div>
 <form method="post" action="/sifre-kur"><div class="satir">
-<div>{sifre_alani("sifre", f"Yeni şifre (en az {hesaplar.EN_KISA_SIFRE} karakter)")}
+<div>{sifre_alani("sifre", C("Yeni şifre (en az {n} karakter)", n=hesaplar.EN_KISA_SIFRE))}
 {SIFRE_GOSTER}</div>
-</div><button class="ikincil">Şifreyi değiştir</button></form>
-<p class="bos" style="margin-top:10px">Şifreni değiştirince başka bir cihazda
-açık kalmış oturumlar etkilenmez; oradan çıkmak için o cihazda Çıkış'a bas.</p>
+</div><button class="ikincil">{C("Şifreyi değiştir")}</button></form>
+<p class="bos" style="margin-top:10px">{C("Şifreni değiştirince başka bir cihazda açık kalmış oturumlar etkilenmez; oradan çıkmak için o cihazda Çıkış'a bas.")}</p>
 </div>"""
 
+    guvenlik_not1 = C("Şu an giriş yok: programı açan herkes doğrudan giriyor. "
+                      "<b>Dükkân içinde, kendi wifi'inde çalışırken bunun sakıncası "
+                      "yok</b> — dışarıdan kimse o ağda değil. Ama programı internete "
+                      "açarsan adresi bilen herkes kasayı, ciroyu ve tedarikçileri "
+                      "görür ve değiştirebilir. O durumda hesap şart.")
+    guvenlik_not2 = C("Aşağıdan hesap kurarsan <b>bu dükkanın şu anki bütün kayıtları "
+                      "olduğu gibi kalır</b>, sadece önüne giriş ekranı gelir.")
     return f"""
-<div class="kart"><h2>Güvenlik</h2>
-<p class="bos">Şu an giriş yok: programı açan herkes doğrudan giriyor.
-<b>Dükkân içinde, kendi wifi'inde çalışırken bunun sakıncası yok</b> — dışarıdan
-kimse o ağda değil. Ama programı internete açarsan adresi bilen herkes kasayı,
-ciroyu ve tedarikçileri görür ve değiştirebilir. O durumda hesap şart.</p>
-<p class="bos">Aşağıdan hesap kurarsan <b>bu dükkanın şu anki bütün kayıtları
-olduğu gibi kalır</b>, sadece önüne giriş ekranı gelir.</p>
+<div class="kart"><h2>{C("Güvenlik")}</h2>
+<p class="bos">{guvenlik_not1}</p>
+<p class="bos">{guvenlik_not2}</p>
 <form method="post" action="/hesap-kur">
 <div class="satir">
-<div><label>Kullanıcı adı</label>
+<div><label>{C("Kullanıcı adı")}</label>
 <input type="text" name="eposta" autocomplete="username"></div>
-<div><label>Adın soyadın</label><input type="text" name="ad"></div>
+<div><label>{C("Adın soyadın")}</label><input type="text" name="ad"></div>
 </div>
 <div class="satir">
-<div>{sifre_alani("sifre", f"Şifre (en az {hesaplar.EN_KISA_SIFRE} karakter)")}</div>
-<div>{sifre_alani("sifre2", "Şifre (tekrar)")}</div>
+<div>{sifre_alani("sifre", C("Şifre (en az {n} karakter)", n=hesaplar.EN_KISA_SIFRE))}</div>
+<div>{sifre_alani("sifre2", C("Şifre (tekrar)"))}</div>
 </div>{SIFRE_GOSTER}
-<button style="margin-top:12px">Hesabı kur ve girişi aç</button></form></div>"""
+<button style="margin-top:12px">{C("Hesabı kur ve girişi aç")}</button></form></div>"""
 
 
 def _hava_ayar_karti(baglanti):
@@ -2702,35 +2894,36 @@ def _hava_ayar_karti(baglanti):
     son = ayar(baglanti, "hava_son_kontrol", "")
 
     kaynaklar = [
-        ("mgm+arsiv", "MGM (resmi) + geçmiş boşlukları Open-Meteo'dan"),
-        ("mgm", "Sadece MGM (resmi)"),
-        ("openmeteo", "Sadece Open-Meteo"),
+        ("mgm+arsiv", C("MGM (resmi) + geçmiş boşlukları Open-Meteo'dan")),
+        ("mgm", C("Sadece MGM (resmi)")),
+        ("openmeteo", C("Sadece Open-Meteo")),
     ]
-    durum = (f"Seçili il: <b>{kacir(secili)}</b> · son güncelleme: "
-             f"{kacir(son) or 'henüz alınmadı'}"
+    durum = (C("Seçili il: <b>{il}</b> · son güncelleme: {son}",
+               il=kacir(secili), son=kacir(son) or C("henüz alınmadı"))
              if secili else
-             "Henüz il seçilmedi. Şehir seçilene kadar program hiçbir şekilde "
-             "internete çıkmaz.")
+             C("Henüz il seçilmedi. Şehir seçilene kadar program hiçbir şekilde "
+               "internete çıkmaz."))
 
+    hava_not = C("Program hava verisini <b>resmi MGM servisinden</b> çeker ve onu "
+                 "geçmiş satışlarla karşılaştırıp ileriye dönük tahmin üretir. İnternet "
+                 "yoksa program normal çalışmaya devam eder, sadece tahmin susar.")
     return f"""
-<div class="kart"><h2>Hava ve tahmin</h2>
+<div class="kart"><h2>{C("Hava ve tahmin")}</h2>
 <p class="bos">{durum}</p>
-<p class="bos">Program hava verisini <b>resmi MGM servisinden</b> çeker ve
-onu geçmiş satışlarla karşılaştırıp ileriye dönük tahmin üretir. İnternet
-yoksa program normal çalışmaya devam eder, sadece tahmin susar.</p>
+<p class="bos">{hava_not}</p>
 <form method="post" action="/sehir-kaydet"><div class="satir">
-<div><label>İl</label><input type="text" name="sehir" list="iller"
+<div><label>{C("İl")}</label><input type="text" name="sehir" list="iller"
      value="{kacir(secili)}" placeholder="Ordu">
      <datalist id="iller">{oneriler}</datalist></div>
-<div><label>Hava verisi nereden gelsin</label>
+<div><label>{C("Hava verisi nereden gelsin")}</label>
      {secim("hava_kaynak", kaynaklar, ayar(baglanti, "hava_kaynak", "mgm+arsiv"))}</div>
-<div style="align-self:end"><button>İli kaydet ve havayı çek</button></div>
+<div style="align-self:end"><button>{C("İli kaydet ve havayı çek")}</button></div>
 </div></form>
 <form method="post" action="/ayarlar" style="margin-top:6px">
 <input type="hidden" name="tahmin_formu" value="1">
 <div class="roller">{kutucuk("tahmin_acik", ayar(baglanti, "tahmin_acik", "1") == "1",
-    "Tahmin açık olsun (ana menünün solunda ve raporlarda görünür)")}</div>
-<button class="ikincil">Kaydet</button></form></div>"""
+    C("Tahmin açık olsun (ana menünün solunda ve raporlarda görünür)"))}</div>
+<button class="ikincil">{C("Kaydet")}</button></form></div>"""
 
 
 # ---------------------------------------------------------------- form islemleri
@@ -2741,28 +2934,28 @@ def islem_sehir_kaydet(baglanti, veri):
 
     il_adi = veri.get("sehir", [""])[0].strip()
     if not il_adi:
-        return "/ayarlar", "İl adı yazılmamış."
+        return "/ayarlar", C("İl adı yazılmamış.")
     il = hava.sehir_kaydet(baglanti, il_adi)
     if il is None:
-        return "/ayarlar", (f"'{il_adi}' MGM il listesinde bulunamadı. "
-                            f"İl adını tam yaz (ilçe değil, il).")
+        return "/ayarlar", C("'{il}' MGM il listesinde bulunamadı. "
+                             "İl adını tam yaz (ilçe değil, il).", il=il_adi)
     ileri, geri, kaynak = hava.guncelle(baglanti)
     if not ileri:
-        return "/ayarlar", (f"{il['ad']} kaydedildi ama hava verisi alınamadı — "
-                            f"internet bağlantını kontrol et.")
-    return "/ayarlar", (f"{il['ad']} kaydedildi. {kaynak} kaynağından {ileri} günlük "
-                        f"tahmin alındı.")
+        return "/ayarlar", C("{il} kaydedildi ama hava verisi alınamadı — "
+                             "internet bağlantını kontrol et.", il=il['ad'])
+    return "/ayarlar", C("{il} kaydedildi. {kaynak} kaynağından {ileri} günlük "
+                         "tahmin alındı.", il=il['ad'], kaynak=kaynak, ileri=ileri)
 
 
 def islem_hava_guncelle(baglanti, veri):
     if not hava.sehir_secili_mi(baglanti):
-        return "/ayarlar", "Önce il seç."
+        return "/ayarlar", C("Önce il seç.")
     ileri, geri, kaynak = hava.guncelle(baglanti)
     if not ileri and not geri:
-        return "/tahmin", "Hava verisi alınamadı; internet bağlantısını kontrol et."
-    mesaj = f"{kaynak} kaynağından {ileri} günlük tahmin alındı."
+        return "/tahmin", C("Hava verisi alınamadı; internet bağlantısını kontrol et.")
+    mesaj = C("{kaynak} kaynağından {ileri} günlük tahmin alındı.", kaynak=kaynak, ileri=ileri)
     if geri:
-        mesaj += f" Geçmişteki {geri} günün gerçekleşen havası tamamlandı."
+        mesaj += " " + C("Geçmişteki {geri} günün gerçekleşen havası tamamlandı.", geri=geri)
     return "/tahmin", mesaj
 
 
@@ -2794,7 +2987,7 @@ def islem_satis(baglanti, veri):
             bitenler.append(kalem_id)
 
     if not kalanlar and not elle and not bitenler:
-        return "/satis", "Hiçbir alan doldurulmamış."
+        return "/satis", C("Hiçbir alan doldurulmamış.")
 
     hesap.sayim_kaydet(baglanti, tarih, kalanlar, elle, bitenler)
     ozet = hesap.gun_ozeti(baglanti, tarih)
@@ -2805,7 +2998,7 @@ def islem_satis(baglanti, veri):
 def islem_sayim_sil(baglanti, veri):
     tarih = veri.get("tarih", [hesap.bugun()])[0]
     hesap.sayim_sil(baglanti, tarih)
-    return f"/satis?tarih={urllib.parse.quote(tarih)}", "Sayım silindi, satışlar geri alındı."
+    return f"/satis?tarih={urllib.parse.quote(tarih)}", C("Sayım silindi, satışlar geri alındı.")
 
 
 def islem_satis_giris(baglanti, veri):
@@ -2819,9 +3012,10 @@ def islem_satis_giris(baglanti, veri):
             girilen += 1
     adres = _dogrudan_adres(tarih)
     if not girilen:
-        return adres, "Hiçbir miktar yazılmamış."
+        return adres, C("Hiçbir miktar yazılmamış.")
     ozet = hesap.gun_ozeti(baglanti, tarih)
-    return adres, f"{girilen} satış kaydedildi. Günün cirosu {para(ozet['ciro'])}."
+    return adres, C("{girilen} satış kaydedildi. Günün cirosu {ciro}.",
+                    girilen=girilen, ciro=para(ozet['ciro']))
 
 
 def islem_uretim(baglanti, veri):
@@ -2838,27 +3032,28 @@ def islem_uretim(baglanti, veri):
             f"{e['ad']} ({mik(e['eksik'])} {e['birim']} eksik, elde {mik(e['elde'])})"
             for e in eksikler
         )
-        return adres, f"!Üretim yapılmadı, malzeme yetmiyor: {detay}"
+        return adres, "!" + C("Üretim yapılmadı, malzeme yetmiyor: {detay}", detay=detay)
 
     if hesap.uretim_ekle(baglanti, tarih, recete_id, adet):
-        return adres, "Üretim kaydedildi, malzemeler stoktan düşüldü."
-    return adres, "!Üretim kaydedilemedi; parti sayısını kontrol et."
+        return adres, C("Üretim kaydedildi, malzemeler stoktan düşüldü.")
+    return adres, "!" + C("Üretim kaydedilemedi; parti sayısını kontrol et.")
 
 
 def islem_alim(baglanti, veri):
     kalem_id = int(sayi(veri.get("kalem_id", ["0"])[0]))
     kalem = hesap.kalem(baglanti, kalem_id)
     if kalem is None:
-        return "/para", "Kalem seçilmemiş."
+        return "/para", C("Kalem seçilmemiş.")
     miktar = sayi(veri.get("koli", ["0"])[0]) * kalem["koli_adet"] + sayi(veri.get("miktar", ["0"])[0])
     if miktar <= 0:
-        return "/para", "Miktar yazılmamış."
+        return "/para", C("Miktar yazılmamış.")
 
     hesap.alim_ekle(
         baglanti, veri.get("tarih", [hesap.bugun()])[0], kalem_id, miktar,
         sayi(veri.get("tutar", ["0"])[0]), veri.get("odeme", ["veresiye"])[0],
     )
-    return "/para", f"Alım kaydedildi ({mik(miktar)} {kalem['birim']} stoğa girdi)."
+    return "/para", C("Alım kaydedildi ({miktar} {birim} stoğa girdi).",
+                      miktar=mik(miktar), birim=kalem['birim'])
 
 
 def islem_gider(baglanti, veri):
@@ -2870,7 +3065,7 @@ def islem_gider(baglanti, veri):
 def islem_calisan_ekle(baglanti, veri):
     ad = veri.get("ad", [""])[0].strip()
     if not ad:
-        return "/calisanlar", "!Çalışanın adı yazılmamış."
+        return "/calisanlar", "!" + C("Çalışanın adı yazılmamış.")
     hesap.calisan_ekle(
         baglanti, ad,
         gorev=veri.get("gorev", [""])[0],
@@ -2880,14 +3075,14 @@ def islem_calisan_ekle(baglanti, veri):
         baslangic=veri.get("baslangic", [""])[0],
         notlar=veri.get("notlar", [""])[0],
     )
-    return "/calisanlar", f"{ad} listeye eklendi."
+    return "/calisanlar", C("{ad} listeye eklendi.", ad=ad)
 
 
 def islem_calisan_kaydet(baglanti, veri):
     calisan_id = int(sayi(veri.get("id", ["0"])[0]))
     ad = veri.get("ad", [""])[0].strip()
     if not calisan_id or not ad:
-        return "/calisanlar", "!Kayıt bulunamadı."
+        return "/calisanlar", "!" + C("Kayıt bulunamadı.")
     hesap.calisan_kaydet(
         baglanti, calisan_id, ad=ad,
         gorev=veri.get("gorev", [""])[0].strip(),
@@ -2898,39 +3093,40 @@ def islem_calisan_kaydet(baglanti, veri):
         ayrilis=veri.get("ayrilis", [""])[0].strip(),
         notlar=veri.get("notlar", [""])[0].strip(),
     )
-    return "/calisanlar", f"{ad} güncellendi."
+    return "/calisanlar", C("{ad} güncellendi.", ad=ad)
 
 
 def islem_maas_yaz(baglanti, veri):
     tarih = veri.get("tarih", [hesap.bugun()])[0]
     adet, toplam = hesap.maas_yaz(baglanti, tarih)
     if not adet:
-        return "/calisanlar", "!Maaş yazılmadı: bu ay zaten yazılmış ya da maaşı olan çalışan yok."
-    return "/calisanlar", f"{adet} kişinin maaşı gidere yazıldı ({para(toplam)})."
+        return "/calisanlar", "!" + C("Maaş yazılmadı: bu ay zaten yazılmış ya da maaşı olan çalışan yok.")
+    return "/calisanlar", C("{adet} kişinin maaşı gidere yazıldı ({tutar}).",
+                            adet=adet, tutar=para(toplam))
 
 
 def islem_odeme(baglanti, veri):
     hesap.odeme_ekle(baglanti, veri.get("tarih", [hesap.bugun()])[0],
                      veri.get("tedarikci", [""])[0], sayi(veri.get("tutar", ["0"])[0]))
-    return "/para", "Ödeme kaydedildi."
+    return "/para", C("Ödeme kaydedildi.")
 
 
 def islem_stok_duzelt(baglanti, veri):
     if not veri.get("miktar", [""])[0].strip():
-        return "/stok", "Miktar yazılmamış."
+        return "/stok", C("Miktar yazılmamış.")
     fark = hesap.sayim_duzelt(
         baglanti, hesap.bugun(), int(sayi(veri.get("kalem_id", ["0"])[0])),
         sayi(veri["miktar"][0]),
     )
-    return "/stok", f"Stok düzeltildi ({mik(fark)} fark kaydedildi)."
+    return "/stok", C("Stok düzeltildi ({fark} fark kaydedildi).", fark=mik(fark))
 
 
 def islem_kalem_ekle(baglanti, veri):
     ad = veri.get("ad", [""])[0].strip()
     if not ad:
-        return "/kalemler", "Kalemin adını yaz."
+        return "/kalemler", C("Kalemin adını yaz.")
     if baglanti.execute("SELECT 1 FROM kalemler WHERE ad = ?", (ad,)).fetchone():
-        return "/kalemler", f"{ad} zaten kayıtlı."
+        return "/kalemler", C("{ad} zaten kayıtlı.", ad=ad)
     kalem_id = baglanti.execute(
         "INSERT INTO kalemler (ad, birim, tur, alinir, uretilir, satilir)"
         " VALUES (?, ?, ?, ?, ?, ?)",
@@ -2940,19 +3136,19 @@ def islem_kalem_ekle(baglanti, veri):
          1 if "satilir" in veri else 0),
     ).lastrowid
     baglanti.commit()
-    return f"/kalem?id={kalem_id}", f"{ad} eklendi. Şimdi ayrıntılarını doldur."
+    return f"/kalem?id={kalem_id}", C("{ad} eklendi. Şimdi ayrıntılarını doldur.", ad=ad)
 
 
 def islem_kalem_kaydet(baglanti, veri):
     kalem_id = int(sayi(veri.get("id", ["0"])[0]))
     ad = veri.get("ad", [""])[0].strip()
     if not ad:
-        return f"/kalem?id={kalem_id}", "Kalemin adını yaz."
+        return f"/kalem?id={kalem_id}", C("Kalemin adını yaz.")
     cakisma = baglanti.execute(
         "SELECT 1 FROM kalemler WHERE ad = ? AND id <> ?", (ad, kalem_id)
     ).fetchone()
     if cakisma:
-        return f"/kalem?id={kalem_id}", f"{ad} adında başka bir kalem var."
+        return f"/kalem?id={kalem_id}", C("{ad} adında başka bir kalem var.", ad=ad)
 
     baglanti.execute(
         "UPDATE kalemler SET ad = ?, birim = ?, aciklama = ?, tur = ?, alinir = ?,"
@@ -2979,11 +3175,11 @@ def islem_kalem_kaydet(baglanti, veri):
          1 if "aktif" in veri else 0,
          kalem_id),
     )
-    mesaj = "Kaydedildi."
+    mesaj = C("Kaydedildi.")
     if "aktif" not in veri:
         if baglanti.execute("SELECT 1 FROM menu_kalemleri WHERE kalem_id = ?",
                             (kalem_id,)).fetchone():
-            mesaj = "Kaydedildi. Kullanım dışı olduğu için menülerden de çıkarıldı."
+            mesaj = C("Kaydedildi. Kullanım dışı olduğu için menülerden de çıkarıldı.")
         menuler.kalemden_cikar(baglanti, kalem_id)
     else:
         baglanti.execute("UPDATE kalemler SET mevsim_disi = 0 WHERE id = ?", (kalem_id,))
@@ -3005,8 +3201,8 @@ def islem_kalem_sil(baglanti, veri):
     if kullanimda:
         baglanti.execute("UPDATE kalemler SET aktif = 0 WHERE id = ?", (kalem_id,))
         baglanti.commit()
-        return "/kalemler", ("Bu kalemin geçmiş kayıtları var, tamamen silinmedi; "
-                             "kullanım dışı yapıldı ve listelerden kalktı.")
+        return "/kalemler", C("Bu kalemin geçmiş kayıtları var, tamamen silinmedi; "
+                              "kullanım dışı yapıldı ve listelerden kalktı.")
     baglanti.execute("DELETE FROM receteler WHERE urun_id = ?", (kalem_id,))
     baglanti.execute("DELETE FROM kalemler WHERE id = ?", (kalem_id,))
     baglanti.commit()
@@ -3023,7 +3219,7 @@ def islem_recete_ekle(baglanti, veri):
         (urun_id, sira),
     )
     baglanti.commit()
-    return f"/kalem?id={urun_id}", "Boş reçete eklendi, malzemelerini yaz."
+    return f"/kalem?id={urun_id}", C("Boş reçete eklendi, malzemelerini yaz.")
 
 
 def _recete_urunu(baglanti, recete_id):
@@ -3051,7 +3247,7 @@ def islem_recete_kaydet(baglanti, veri):
                 (sayi(degerler[0]), satir_id, recete_id),
             )
     baglanti.commit()
-    return f"/kalem?id={urun_id}", "Reçete kaydedildi."
+    return f"/kalem?id={urun_id}", C("Reçete kaydedildi.")
 
 
 def islem_recete_sil(baglanti, veri):
@@ -3061,7 +3257,7 @@ def islem_recete_sil(baglanti, veri):
     baglanti.execute("UPDATE uretimler SET recete_id = NULL WHERE recete_id = ?", (recete_id,))
     baglanti.execute("DELETE FROM receteler WHERE id = ?", (recete_id,))
     baglanti.commit()
-    return f"/kalem?id={urun_id}", "Reçete silindi."
+    return f"/kalem?id={urun_id}", C("Reçete silindi.")
 
 
 def islem_recete_satir_ekle(baglanti, veri):
@@ -3070,7 +3266,7 @@ def islem_recete_satir_ekle(baglanti, veri):
     kalem_id = int(sayi(veri.get("kalem_id", ["0"])[0]))
     miktar = sayi(veri.get("miktar", ["0"])[0])
     if miktar <= 0:
-        return f"/kalem?id={urun_id}", "Miktar yazılmamış."
+        return f"/kalem?id={urun_id}", C("Miktar yazılmamış.")
     baglanti.execute(
         "INSERT INTO recete_satirlari (recete_id, kalem_id, miktar) VALUES (?, ?, ?)"
         " ON CONFLICT(recete_id, kalem_id) DO UPDATE SET miktar = excluded.miktar",
@@ -3088,7 +3284,7 @@ def islem_recete_satir_sil(baglanti, veri):
         (int(sayi(veri.get("satir_id", ["0"])[0])),),
     )
     baglanti.commit()
-    return f"/kalem?id={urun_id}", "Malzeme çıkarıldı."
+    return f"/kalem?id={urun_id}", C("Malzeme çıkarıldı.")
 
 
 def islem_sil(baglanti, veri):
@@ -3096,8 +3292,8 @@ def islem_sil(baglanti, veri):
     kayit_id = int(sayi(veri.get("id", ["0"])[0]))
     donus = veri.get("donus", ["/"])[0]
     if hesap.kayit_sil(baglanti, tur, kayit_id):
-        return donus, "Kayıt silindi, stok ve kasa geri alındı."
-    return donus, "Kayıt silinemedi."
+        return donus, C("Kayıt silindi, stok ve kasa geri alındı.")
+    return donus, C("Kayıt silinemedi.")
 
 
 def islem_ozel_gun_ekle(baglanti, veri):
@@ -3107,14 +3303,14 @@ def islem_ozel_gun_ekle(baglanti, veri):
     bitis = veri.get("bitis", [""])[0].strip() or baslangic
 
     if not ad or not baslangic:
-        return "/ozel-gunler", "Ad ve başlangıç tarihi gerekli."
+        return "/ozel-gunler", C("Ad ve başlangıç tarihi gerekli.")
     try:
         ilk = datetime.date.fromisoformat(baslangic)
         son = datetime.date.fromisoformat(bitis)
     except ValueError:
-        return "/ozel-gunler", "Tarih anlaşılamadı."
+        return "/ozel-gunler", C("Tarih anlaşılamadı.")
     if son < ilk:
-        return "/ozel-gunler", "Bitiş tarihi başlangıçtan önce olamaz."
+        return "/ozel-gunler", C("Bitiş tarihi başlangıçtan önce olamaz.")
 
     # Etiket bos birakildiysa ad etiket olur; o zaman kayit tek basina bir
     # havuz olur ve ancak kendi gunlerinden ogrenilir.
@@ -3125,13 +3321,13 @@ def islem_ozel_gun_ekle(baglanti, veri):
 
 def islem_ozel_gun_durum(baglanti, veri):
     takvim.durum_degistir(baglanti, int(sayi(veri.get("id", ["0"])[0])))
-    return "/ozel-gunler", "Değiştirildi."
+    return "/ozel-gunler", C("Değiştirildi.")
 
 
 def islem_ozel_gun_sil(baglanti, veri):
     if takvim.sil(baglanti, int(sayi(veri.get("id", ["0"])[0]))):
         return "/ozel-gunler", "Silindi."
-    return "/ozel-gunler", "Bu kaydı program üretiyor; silinmez, kapatılabilir."
+    return "/ozel-gunler", C("Bu kaydı program üretiyor; silinmez, kapatılabilir.")
 
 
 def islem_ayarlar(baglanti, veri):
@@ -3152,7 +3348,7 @@ def islem_ayarlar(baglanti, veri):
                 baglanti.execute(f"UPDATE kalemler SET {kolon} = ? WHERE id = ?",
                                  (sayi(degerler[0]), kalem_id))
     baglanti.commit()
-    return "/ayarlar", "Kaydedildi."
+    return "/ayarlar", C("Kaydedildi.")
 
 
 SAYFALAR = {
@@ -3217,11 +3413,13 @@ class Sunucu(BaseHTTPRequestHandler):
     def log_message(self, bicim, *argumanlar):
         pass  # konsolu her istekte kirletmesin
 
-    def _gonder(self, govde, kod=200):
+    def _gonder(self, govde, kod=200, cerez=None):
         veri = govde.encode("utf-8")
         self.send_response(kod)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(veri)))
+        if cerez:
+            self.send_header("Set-Cookie", cerez)
         self.end_headers()
         self.wfile.write(veri)
 
@@ -3274,16 +3472,17 @@ class Sunucu(BaseHTTPRequestHandler):
         kisi = hesaplar.kullanici(defter, kullanici_id)
         return kisi, kisi["dukkan_id"]
 
-    def _giris_ekrani(self, defter):
+    def _giris_ekrani(self, defter, tanitim_ac=False, cerez=None):
         """Girmemis birine gosterilecek ekran.
 
         Defter bombosken giris ekrani anlamsizdir - girilecek hesap yok.
-        Onun yerine dogrudan dukkan acma ekrani gosterilir.
+        Onun yerine dogrudan dukkan acma ekrani gosterilir. 'tanitim_ac'
+        giris sayfasindaki tanitim panelini acik baslatir.
         """
         if not hesaplar.kullanici_var_mi(defter):
-            self._gonder(kayit_sayfasi())
+            self._gonder(kayit_sayfasi(), cerez=cerez)
         else:
-            self._gonder(giris_sayfasi(), 401)
+            self._gonder(giris_sayfasi(tanitim_ac=tanitim_ac), 401, cerez=cerez)
 
     def _oturum_ac(self, defter, kullanici_id, adres="/"):
         """Cerezi yazip ic sayfaya yollar."""
@@ -3344,11 +3543,30 @@ class Sunucu(BaseHTTPRequestHandler):
         sorun = hesaplar.sifre_degistir(defter, kisi["id"], veri.get("sifre", [""])[0])
         self._yonlendir("/ayarlar", ("!" + sorun) if sorun else "Şifre değiştirildi.")
 
+    def _dili_coz(self):
+        """Bu istegin dilini cerez + tarayici diline gore belirler."""
+        diller.ayarla(diller.coz(
+            guvenlik.cerez_deger(self.headers.get("Cookie"), "dil"),
+            self.headers.get("Accept-Language")))
+
     def do_GET(self):
         parca = urllib.parse.urlparse(self.path)
         if parca.path == "/favicon.ico":
             self.send_response(204)
             self.end_headers()
+            return
+
+        self._dili_coz()
+        if parca.path == "/dil":
+            # Ustteki TR/EN dugmesi. Secimi cereze yazip gelinen sayfaya doner.
+            sorgu = urllib.parse.parse_qs(parca.query)
+            secim = sorgu.get("d", [""])[0]
+            geri = sorgu.get("geri", ["/"])[0]
+            if not geri.startswith("/") or geri.startswith("//"):
+                geri = "/"
+            cerez = (guvenlik.deger_cerezi("dil", secim, self._https_mi())
+                     if secim in diller.DESTEKLENEN else None)
+            self._yonlendir(geri, "", cerez)
             return
 
         defter = hesaplar.baglan()
@@ -3357,12 +3575,26 @@ class Sunucu(BaseHTTPRequestHandler):
             # Giris ve kayit ekranlari hicbir dukkanin verisine bakmadan
             # cizilir - kimin geldigi henuz bilinmiyor.
             if not dukkan_id:
-                if parca.path == "/kayit":
+                if parca.path == "/tanitim":
+                    # Tanitimin kendisi: giris sayfasindaki iframe'in kaynagi,
+                    # ayrica dogrudan da acilabilir.
+                    self._gonder(tanitim.sayfa())
+                elif parca.path == "/kayit":
                     self._gonder(kayit_sayfasi())
                 else:
-                    self._giris_ekrani(defter)
+                    # Siteye ilk kez gelen birine tanitim paneli acik gelir
+                    # (ayri sayfa degil, giris sayfasinin icinde bir iframe).
+                    # Isaret cerezi konunca bir daha kapali baslar; istersen
+                    # "Tanıtımı gör" ile yine acilir.
+                    ilk = (parca.path == "/"
+                           and hesaplar.kullanici_var_mi(defter)
+                           and not guvenlik.cerez_deger(
+                               self.headers.get("Cookie"), "tanitim_goruldu"))
+                    cerez = (guvenlik.bayrak_cerezi("tanitim_goruldu", self._https_mi())
+                             if ilk else None)
+                    self._giris_ekrani(defter, tanitim_ac=ilk, cerez=cerez)
                 return
-            if parca.path in ("/giris", "/kayit"):
+            if parca.path in ("/giris", "/kayit", "/tanitim"):
                 self._yonlendir("/")
                 return
         except Exception as hata:
@@ -3403,6 +3635,7 @@ class Sunucu(BaseHTTPRequestHandler):
         veri = urllib.parse.parse_qs(
             self.rfile.read(uzunluk).decode("utf-8"), keep_blank_values=True
         )
+        self._dili_coz()
 
         defter = hesaplar.baglan()
         try:
@@ -3424,7 +3657,7 @@ class Sunucu(BaseHTTPRequestHandler):
                     # Yanlis sifreyi bir saniye bekletmek, sirayla sifre deneyen
                     # bir programi pratikte kullanissiz hale getirir.
                     time.sleep(1)
-                    self._gonder(giris_sayfasi("Kullanıcı adı ya da şifre yanlış.",
+                    self._gonder(giris_sayfasi(C("Kullanıcı adı ya da şifre yanlış."),
                                                veri.get("eposta", [""])[0]), 401)
                 return
 
