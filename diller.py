@@ -1181,4 +1181,120 @@ SOZLUK = {
     "altındaysa yeşil; ✓ işareti gerçekleşenin tahmin aralığına düştüğünü gösterir.":
         "Each day's morning forecast and that evening's actual revenue. Deviation "
         "under 20% is green; a ✓ means the actual fell within the forecast range.",
+
+    # --- Temel modellerle karsilastirma ---
+    "Temel modellerle karşılaştırma": "Comparison with baseline models",
+    "Beş model aynı adil koşulda yarışır (her gün yalnızca kendinden önceki "
+    "günlerle). Üç ölçüt: MAE (ortalama mutlak hata), MAPE (yüzde hata) ve aralık "
+    "kapsama (gerçekleşenin ~%{h} tahmin aralığına düşme oranı).":
+        "Five models compete on equal footing (each day using only the days "
+        "before it). Three metrics: MAE (mean absolute error), MAPE (percent "
+        "error) and interval coverage (how often the actual fell within the "
+        "~{h}% forecast range).",
+    "Model": "Model",
+    "Kapsama (~%{h})": "Coverage (~{h}%)",
+    "Kademeli model (bizim)": "Tiered model (ours)",
+    "Çoklu regresyon (ridge)": "Multiple regression (ridge)",
+    "Son 7 gün ortalaması": "Last 7 days' average",
+    "Geçen haftanın aynı günü": "Same day last week",
+    "Genel ortalama": "Overall average",
+    "{ad}: MAPE %{mape}, MAE {mae}, kapsama %{kap}":
+        "{ad}: MAPE {mape}%, MAE {mae}, coverage {kap}%",
+    "Modellere göre ortalama yüzde hata (MAPE); kısa çubuk iyidir.":
+        "Average percent error (MAPE) by model; shorter bar is better.",
+    "En iyi modelimiz <b>{a}</b> (MAPE %{am}); en iyi naif kıyas <b>{b}</b> (%{bm}). "
+    "Aralık ~%{h} için kuruldu; kapsama buna ne kadar yakınsa belirsizlik o kadar dürüst.":
+        "Our best model is <b>{a}</b> (MAPE {am}%); the best naive baseline is "
+        "<b>{b}</b> ({bm}%). The interval is built for ~{h}%; the closer coverage "
+        "is to that, the more honest the uncertainty.",
+    "Karşılaştırma için yeterli geçmiş gün yok.":
+        "Not enough past days for a comparison.",
+
+    # --- gazeteci cocuk (newsvendor) ---
+    "Tahmin edilen satışların dağılımından, her ürünün kârına göre en kârlı "
+    "üretim miktarı hesaplandı (gazeteci çocuk kuralı): kârı yüksek üründe "
+    "ortalamanın biraz üstü, kârı ince üründe altı. Eldeki stokla karşılaştırıldı.":
+        "From the distribution of forecast sales, the most profitable production "
+        "amount is computed per product by its margin (the newsvendor rule): a bit "
+        "above the mean for high-margin items, below it for thin-margin ones. "
+        "Compared with stock on hand.",
+    "ortalama {n}": "mean {n}",
+    "Fire mi, kaçan satış mı? — gazeteci çocuk sınaması":
+        "Waste or lost sales? — the newsvendor test",
+    "Dondurma ve pasta bozulur: fazla üretim fire, az üretim kaçan satış. "
+    "Tahminin dağılımı elde olduğu için, her ürünün kârına göre en kârlı "
+    "üretim miktarı seçilir (gazeteci çocuk / newsvendor). Bu kural, hesap "
+    "tarafındaki eski 14 günlük ortalamaya karşı geçmiş sezonda sınandı.":
+        "Ice cream and cake spoil: overproduction is waste, underproduction is a "
+        "lost sale. Since the forecast distribution is in hand, the most profitable "
+        "production amount is chosen per product by its margin (the newsvendor rule). "
+        "This rule was tested over the past season against the old 14-day average on "
+        "the accounting side.",
+    "Fire kıyası için yeterli geçmiş satış yok.":
+        "Not enough past sales for a waste comparison.",
+    "Üretim kuralı": "Production rule",
+    "14 günlük ortalama": "14-day average",
+    "Fire": "Waste",
+    "Kaçan satış": "Lost sales",
+    "Gazeteci çocuk (tahmin dağılımı)": "Newsvendor (forecast distribution)",
+    "azaldı": "down",
+    "arttı": "up",
+    "Gazeteci çocuk kuralı, 14 günlük hareketli ortalamaya karşı bir sezonda: "
+    "net kâr {kar}, fire {fire}, kaçan satış {satis}. "
+    "{n} ürün, ürün başına ~{g} gün üzerinde ölçüldü. Aynı talep tahmini, "
+    "farklı üretim miktarı — ölçülen tek şey karar kuralı.":
+        "Over one season, versus the 14-day moving average: net profit {kar}, "
+        "waste {fire}, lost sales {satis}. Measured over {n} products, ~{g} days "
+        "each. Same demand forecast, different production amount — the only thing "
+        "measured is the decision rule.",
+
+    # --- fire anomali tespiti ---
+    "Anomali tespiti": "Anomaly detection",
+    "Son 30 günün fire dağılımına göre sıra dışı bulunan kalemler "
+    "(çeyrekler arası aralık yöntemi). Sabit bir eşik değil, kalemin "
+    "kendi geçmişi ölçüt alındı.":
+        "Items found unusual against the last 30 days' waste distribution "
+        "(interquartile range method). Not a fixed threshold — the item's own "
+        "history is the yardstick.",
+    "{ad}: fire olağandışı yüksek — {miktar} {birim}":
+        "{ad}: unusually high waste — {miktar} {birim}",
+    "Son {gun} günde bu kalemde neredeyse hiç fire yokken bugün {miktar} {birim} "
+    "çıktı. Bir sayım/üretim hatası ya da olağandışı bir kayıp olabilir; kontrol "
+    "etmekte fayda var.":
+        "Over the last {gun} days this item had almost no waste, yet today it was "
+        "{miktar} {birim}. It may be a counting/production error or an unusual loss; "
+        "worth checking.",
+    "son {gun} günde genelde {medyan} {birim} civarı; normal üst "
+    "sınır {ust} {birim}":
+        "usually around {medyan} {birim} over the last {gun} days; normal upper "
+        "bound {ust} {birim}",
+    "Bu kalemde fire {normal}. Bugün {miktar} {birim} çıktı — "
+    "dağılımdan {z} kat sapma. Bir sayım/üretim hatası ya da "
+    "olağandışı bir kayıp olabilir; kontrol etmekte fayda var.":
+        "Waste for this item is {normal}. Today it was {miktar} {birim} — {z}× the "
+        "spread away. It may be a counting/production error or an unusual loss; "
+        "worth checking.",
+
+    # --- durum_metni (capraz dogrulamali secim) ---
+    "{gun} günlük satış geçmişine bakıyor; hangi bileşeni kullanacağına çapraz "
+    "doğrulamayla kendisi karar verdi":
+        "looks at {gun} days of sales history; it decided which component to use "
+        "by cross-validation itself",
+    "sıcaklığı aldı: her 1 derece günlük ciroyu ortalama {deger} birim değiştiriyor":
+        "took temperature: each 1 degree changes daily revenue by about {deger} units",
+    "sıcaklığı denedi ama hatayı düşürmedi, kullanmıyor":
+        "tried temperature but it didn't lower the error, so not using it",
+    "yağmuru denedi ama hatayı düşürmedi, kullanmıyor":
+        "tried rain but it didn't lower the error, so not using it",
+    "hafta sonu satışı hafta içinin {kat} katı": "weekend sales are {kat}× weekdays",
+    "haftanın gününü denedi ama hatayı düşürmedi, kullanmıyor":
+        "tried day-of-week but it didn't lower the error, so not using it",
+    "özel gün etkisi çapraz doğrulamada seçilmedi":
+        "special-day effect was not selected by cross-validation",
+    "yağış miktarını sürekli ölçüyor: çok yağışlı bir gün kurak güne göre satışı "
+    "%{yuzde} {yon}":
+        "measures rainfall continuously: a very wet day {yon} sales by {yuzde}% "
+        "versus a dry day",
+    "yağışı (mm) denedi ama hatayı düşürmedi, kullanmıyor":
+        "tried rainfall (mm) but it didn't lower the error, so not using it",
 }

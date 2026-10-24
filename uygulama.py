@@ -361,6 +361,8 @@ button.mini { background:none; color:#33475b; padding:4px 8px; font-weight:400; 
 .uyari.mevsim .detay { margin-top:5px; }
 .uyari b { font-size:16px; }
 .uyari .detay { font-size:14px; color:#4a5b6e; margin-top:3px; }
+.anomali-blok { border:1px solid #f0c38a; background:#fffaf2; border-radius:9px; padding:12px 14px; margin-bottom:12px; }
+.anomali-blok h3 { color:#b5620a; font-size:16px; }
 .bos { color:#6b7c8f; font-size:15px; }
 .giris-satir { display:flex; align-items:center; gap:12px; padding:8px 0; border-bottom:1px solid #f0f3f6; }
 .giris-satir .ad { flex:1; }
@@ -1044,10 +1046,15 @@ def _sayim_sonucu(baglanti, tarih, sayim):
     ) or f"<tr><td class='bos' colspan='4'>{C('Hiçbir şey satılmamış görünüyor.')}</td></tr>"
     ozet = hesap.gun_ozeti(baglanti, tarih)
 
-    # Buyuk bir stok farki sessizce fire yazilmamali, gozune sokulmali.
+    # Buyuk bir stok farki sessizce fire yazilmamali, gozune sokulmali. Fire
+    # uyarisi iki kademeli: once son 30 gunun fire dagilimina gore ISTATISTIKSEL
+    # anomali mi diye bakilir (tahmin_modulu.fire_anomalisi, IQR/robust z); oyleyse
+    # ayri "Anomali tespiti" basligi altinda vurgulanir. Degilse eski sabit esikli
+    # (koli'nin %10'u) basit uyari gosterilir.
     uyarilar = ""
+    anomali_html = ""
     for fark in baglanti.execute(
-        "SELECT h.miktar, k.ad, k.birim, k.koli_adet FROM stok_hareketleri h"
+        "SELECT h.kalem_id, h.miktar, k.ad, k.birim, k.koli_adet FROM stok_hareketleri h"
         " JOIN kalemler k ON k.id = h.kalem_id"
         " WHERE h.kaynak_tur = 'sayim' AND h.kaynak_id = ? AND h.sebep = 'Sayım farkı'",
         (sayim["id"],),
@@ -1056,9 +1063,33 @@ def _sayim_sonucu(baglanti, tarih, sayim):
         if abs(fark["miktar"]) < buyuk * 0.1:
             continue
         miktar = mik(abs(fark["miktar"]), 1)
+        birim = kacir(fark["birim"])
+        ad = kacir(fark["ad"])
         if fark["miktar"] < 0:
+            an = tahmin_modulu.fire_anomalisi(
+                baglanti, fark["kalem_id"], tarih, abs(fark["miktar"]))
+            if an:
+                baslik = C("{ad}: fire olağandışı yüksek — {miktar} {birim}",
+                           ad=ad, miktar=miktar, birim=birim)
+                if an["yontem"] == "sabit":
+                    aciklama = C("Son {gun} günde bu kalemde neredeyse hiç fire yokken "
+                                 "bugün {miktar} {birim} çıktı. Bir sayım/üretim hatası ya "
+                                 "da olağandışı bir kayıp olabilir; kontrol etmekte fayda var.",
+                                 gun=an["gun"], miktar=miktar, birim=birim)
+                else:
+                    normal = C("son {gun} günde genelde {medyan} {birim} civarı; normal üst "
+                               "sınır {ust} {birim}", gun=an["gun"], birim=birim,
+                               medyan=mik(an["medyan"], 1), ust=mik(an["ust_cit"], 1))
+                    aciklama = C("Bu kalemde fire {normal}. Bugün {miktar} {birim} çıktı — "
+                                 "dağılımdan {z} kat sapma. Bir sayım/üretim hatası ya da "
+                                 "olağandışı bir kayıp olabilir; kontrol etmekte fayda var.",
+                                 normal=normal, miktar=miktar, birim=birim,
+                                 z=f"{abs(an['z']):.1f}")
+                anomali_html += (f'<div class="uyari acil"><b>{baslik}</b>'
+                                 f'<div class="detay">{aciklama}</div></div>')
+                continue
             baslik = C("{ad} sayımı {miktar} {birim} eksik çıktı",
-                       ad=kacir(fark["ad"]), miktar=miktar, birim=kacir(fark["birim"]))
+                       ad=ad, miktar=miktar, birim=birim)
             aciklama = C("Bu miktar fire olarak yazıldı ve kâra yansımadı. Fire, ikram "
                          "ya da kaplara fazla konulmuş olabilir. Sürekli aynı yönde "
                          "çıkıyorsa reçetedeki miktarı düzelt.")
@@ -1066,11 +1097,20 @@ def _sayim_sonucu(baglanti, tarih, sayim):
                          f'<div class="detay">{aciklama}</div></div>')
         else:
             baslik = C("{ad} sayımı {miktar} {birim} fazla çıktı",
-                       ad=kacir(fark["ad"]), miktar=miktar, birim=kacir(fark["birim"]))
+                       ad=ad, miktar=miktar, birim=birim)
             aciklama = C("Kayıtta olması gerekenden fazla var. Üretim ya da alım "
                          "girmeyi unutmuş olabilirsin.")
             uyarilar += (f'<div class="uyari yakin"><b>{baslik}</b>'
                          f'<div class="detay">{aciklama}</div></div>')
+
+    if anomali_html:
+        anomali_baslik = C("Anomali tespiti")
+        anomali_not = C("Son 30 günün fire dağılımına göre sıra dışı bulunan kalemler "
+                        "(çeyrekler arası aralık yöntemi). Sabit bir eşik değil, kalemin "
+                        "kendi geçmişi ölçüt alındı.")
+        uyarilar = (f'<div class="anomali-blok"><h3 style="margin:0 0 8px">⚠ {anomali_baslik}</h3>'
+                    f'<p class="bos" style="margin:0 0 10px">{anomali_not}</p>'
+                    f'{anomali_html}</div>{uyarilar}')
 
     sarf_notu = ""
     if ozet["sarf_maliyeti"] > 0:
@@ -2107,9 +2147,16 @@ def sayfa_tahmin(baglanti, sorgu):
                      + C("{acik} {birim} açık → {cikacak} {birim} çıkar",
                          acik=mik(oneri['acik'], 1), birim=birim,
                          cikacak=mik(oneri['cikacak'], 1)) + f"{artan}</div>")
+        birim_ad = kacir(oneri["kalem"]["birim"])
+        gereken_html = f"{mik(oneri['gereken'], 1)} {birim_ad}"
+        ort = oneri.get("ortalama", oneri["gereken"])
+        # Gazeteci cocuk hedefi ortalamadan belirgin ayrisiyorsa nokta tahmini de goster.
+        if abs(oneri["gereken"] - ort) > max(0.05 * max(ort, 1.0), 0.05):
+            gereken_html += (f"<div class='bos' style='font-size:13px'>"
+                             + C("ortalama {n}", n=mik(ort, 1)) + "</div>")
         uretim_html += (
             f"<tr><td>{kacir(oneri['kalem']['ad'])}</td>"
-            f"<td class='sag'>{mik(oneri['gereken'], 1)} {kacir(oneri['kalem']['birim'])}</td>"
+            f"<td class='sag'>{gereken_html}</td>"
             f"<td class='sag'>{mik(oneri['elde'], 1)}</td>"
             f"<td class='sag'>{durum}</td></tr>"
         )
@@ -2117,7 +2164,9 @@ def sayfa_tahmin(baglanti, sorgu):
     if uretim_html:
         uretim_karti = f"""
 <div class="kart"><h2>{C("Önümüzdeki {n} gün için ne üretmeli", n=len(gunler))}</h2>
-<p class="bos">{C("Tahmin edilen satışların reçetelerden hesaplanan malzeme ihtiyacı, eldeki stokla karşılaştırıldı.")}</p><table>
+<p class="bos">{C("Tahmin edilen satışların dağılımından, her ürünün kârına göre en kârlı "
+                  "üretim miktarı hesaplandı (gazeteci çocuk kuralı): kârı yüksek üründe "
+                  "ortalamanın biraz üstü, kârı ince üründe altı. Eldeki stokla karşılaştırıldı.")}</p><table>
 <tr><th>{C("Ürün")}</th><th class='sag'>{C("Gereken")}</th><th class='sag'>{C("Elde")}</th>
 <th class='sag'>{C("Öneri")}</th></tr>{uretim_html}</table></div>"""
 
@@ -2146,33 +2195,75 @@ def _tahmin_gunlugu_baglantisi():
 {C("Sabah ne dedik, akşam ne oldu · gün sayısına karşı hata eğrisi")}</a></p></div>"""
 
 
-def sayfa_tahmin_gunlugu(baglanti, sorgu):
-    test = tahmin_modulu.geriye_donuk_test(baglanti)
-    gunluk = tahmin_modulu.tahmin_gunlugu(baglanti)
+def _fire_kiyasi_govde(baglanti):
+    """Gazeteci cocuk kuralinin hareketli ortalamaya karsi fire/kacan satis/kar kiyasi."""
+    fire = tahmin_modulu.fire_kiyasi(baglanti)
+    ma, nv = fire["ma"], fire["nv"]
+    if fire["urun_sayisi"] < 1 or (ma["fire"] + ma["kayip"] + ma["kar"]) <= 0:
+        return grafik.bos(C("Fire kıyası için yeterli geçmiş satış yok."))
 
-    # --- 1. Geriye donuk test: hata egrisi ---
-    adimlar = test["adimlar"]
-    if len(adimlar) >= 2:
-        tavan = max(max(a["ort_m"], a["ort_k"]) for a in adimlar) * 1.08 or 1.0
+    def oran(eski, yeni):
+        return (yeni - eski) / eski * 100.0 if abs(eski) > 1e-9 else 0.0
+
+    satir = (lambda ad, d, vurgu="": f"<tr><td>{ad}</td>"
+             f"<td class='sag'>{para(d['fire'])}</td>"
+             f"<td class='sag'>{para(d['kayip'])}</td>"
+             f"<td class='sag'>{vurgu}{para(d['kar'])}{'</b>' if vurgu else ''}</td></tr>")
+    tablo = (f"<table><tr><th>{C('Üretim kuralı')}</th>"
+             f"<th class='sag'>{C('Fire')}</th>"
+             f"<th class='sag'>{C('Kaçan satış')}</th>"
+             f"<th class='sag'>{C('Net kâr')}</th></tr>"
+             + satir(C("14 günlük ortalama"), ma)
+             + satir("<b>" + C("Gazeteci çocuk (tahmin dağılımı)") + "</b>", nv, "<b>")
+             + "</table>")
+
+    d_fire, d_kayip, d_kar = oran(ma["fire"], nv["fire"]), oran(ma["kayip"], nv["kayip"]), oran(ma["kar"], nv["kar"])
+
+    def yon(d, az_iyi):
+        # az_iyi=True: dusmek iyi (fire, kacan satis). False: artmak iyi (kar).
+        kelime = (C("azaldı") if d < 0 else C("arttı"))
+        iyi = (d < 0) if az_iyi else (d > 0)
+        renk = "yesil" if iyi else "kirmizi"
+        return f"<span class='{renk}'>%{abs(d):.0f} {kelime}</span>"
+
+    ozet = C("Gazeteci çocuk kuralı, 14 günlük hareketli ortalamaya karşı bir sezonda: "
+             "net kâr {kar}, fire {fire}, kaçan satış {satis}. "
+             "{n} ürün, ürün başına ~{g} gün üzerinde ölçüldü. Aynı talep tahmini, "
+             "farklı üretim miktarı — ölçülen tek şey karar kuralı.",
+             kar=yon(d_kar, False), fire=yon(d_fire, True), satis=yon(d_kayip, True),
+             n=fire["urun_sayisi"], g=fire["gun_sayisi"])
+    return f'{tablo}<p class="grafik-alt" style="margin-top:14px">{ozet}</p>'
+
+
+def sayfa_tahmin_gunlugu(baglanti, sorgu):
+    kar = tahmin_modulu.karsilastir(baglanti)
+    gunluk = tahmin_modulu.tahmin_gunlugu(baglanti)
+    modeller_harita = {m["anahtar"]: m for m in kar["modeller"]}
+
+    # --- 1. Gun sayisina karsi hata egrisi (karsilastirmanin ayni gecisinden) ---
+    kademeli = modeller_harita.get("kademeli")
+    genel = modeller_harita.get("genel")
+    if kademeli and genel and len(kademeli["egri"]) >= 2:
+        k_deg = [v for _, v in kademeli["egri"]]
+        g_deg = [v for _, v in genel["egri"]]
+        x_et = [str(n) for n, _ in kademeli["egri"]]
+        tavan = (max(max(k_deg), max(g_deg)) * 1.08) or 1.0
         egri = grafik.cizgi_grafigi(
-            [{"ad": C("Model"), "renk": grafik.MAVI,
-              "degerler": [a["ort_m"] for a in adimlar]},
-             {"ad": C("Düz ortalama (kıyas)"), "renk": grafik.TURUNCU,
-              "degerler": [a["ort_k"] for a in adimlar]}],
-            [str(a["n"]) for a in adimlar],
-            tavan, C("%{t} hata", t=f"{tavan:.0f}"),
+            [{"ad": C("Kademeli model (bizim)"), "renk": grafik.MAVI, "degerler": k_deg},
+             {"ad": C("Genel ortalama"), "renk": grafik.TURUNCU, "degerler": g_deg}],
+            x_et, tavan, C("%{t} hata", t=f"{tavan:.0f}"),
             C("Gün sayısına karşı ortalama yüzde hata; model ve düz ortalama kıyası."),
             C("Yatay eksen: modelin gördüğü gün sayısı. Dikey eksen: o güne kadarki "
               "ortalama yüzde hata. Veri arttıkça hata oturuyor — tezin kanıtı bu eğri."))
         ozet = C("Geçmişin tamamında model ortalama <b>%{m}</b> yanıldı; "
                  "yalnızca ortalamaya bakan kıyas <b>%{k}</b>. "
                  "{n} gün tek tek, sadece kendinden önceki günlerle tahmin edildi.",
-                 m=f"{test['ort_hata_model']:.0f}", k=f"{test['ort_hata_kiyas']:.0f}",
-                 n=test["deger_sayisi"])
+                 m=f"{kademeli['mape']:.0f}", k=f"{genel['mape']:.0f}",
+                 n=kar["deger_sayisi"])
         test_govde = f'{egri}<p class="grafik-alt" style="margin-top:14px">{ozet}</p>'
     else:
         test_govde = grafik.bos(C("Geriye dönük test için yeterli geçmiş gün yok "
-                                  "(en az {n} günden sonrası gerekir).", n=test["en_az_gun"] + 2))
+                                  "(en az {n} günden sonrası gerekir).", n=kar["en_az_gun"] + 2))
 
     # --- 2. Tahmin gunlugu tablosu ---
     if gunluk:
@@ -2204,6 +2295,66 @@ def sayfa_tahmin_gunlugu(baglanti, sorgu):
         gunluk_govde = grafik.bos(C("Henüz tahmin günlüğü oluşmadı. Program her gün "
                                     "açıldığında o günün tahminini buraya yazar."))
 
+    # --- 3. Temel modellerle karsilastirma (tek tablo + tek grafik) ---
+    modeller = kar["modeller"]
+    bizimkiler = ("kademeli", "ridge")
+    if len(modeller) >= 2:
+        en_mae = min(m["mae"] for m in modeller)
+        en_mape = min(m["mape"] for m in modeller)
+        en_kaps_anahtar = min(
+            modeller, key=lambda m: abs(m["kapsama"] - kar["kapsama_hedef"]))["anahtar"]
+
+        def yesilse(kosul, metin):
+            return f"<span class='yesil'><b>{metin}</b></span>" if kosul else metin
+
+        satirlar = ""
+        for m in modeller:
+            ad = C(m["ad"])
+            if m["anahtar"] in bizimkiler:
+                ad = f"<b>{ad}</b>"
+            mae_s = para(m["mae"])
+            mape_s = f"%{m['mape']:.1f}"
+            kap_s = f"%{m['kapsama']:.0f}"
+            satirlar += (
+                f"<tr><td>{ad}</td>"
+                f"<td class='sag'>{yesilse(abs(m['mae'] - en_mae) < 1e-6, mae_s)}</td>"
+                f"<td class='sag'>{yesilse(abs(m['mape'] - en_mape) < 1e-6, mape_s)}</td>"
+                f"<td class='sag'>{yesilse(m['anahtar'] == en_kaps_anahtar, kap_s)}</td></tr>")
+        tablo = (f"<table><tr><th>{C('Model')}</th>"
+                 f"<th class='sag'>{C('MAE')}</th>"
+                 f"<th class='sag'>{C('MAPE')}</th>"
+                 f"<th class='sag'>{C('Kapsama (~%{h})', h=kar['kapsama_hedef'])}</th></tr>"
+                 f"{satirlar}</table>")
+
+        tavan = max(m["mape"] for m in modeller) or 1.0
+        sirali = sorted(modeller, key=lambda m: m["mape"])
+        cubuklar = grafik.cubuk_listesi(
+            [(C(m["ad"]), f"%{m['mape']:.1f}", grafik.oran(m["mape"], tavan),
+              C("{ad}: MAPE %{mape}, MAE {mae}, kapsama %{kap}",
+                ad=C(m["ad"]), mape=f"{m['mape']:.1f}",
+                mae=para(m["mae"]), kap=f"{m['kapsama']:.0f}"))
+             for m in sirali],
+            grafik.MAVI,
+            C("Modellere göre ortalama yüzde hata (MAPE); kısa çubuk iyidir."))
+
+        bizim = min((m for m in modeller if m["anahtar"] in bizimkiler),
+                    key=lambda m: m["mape"], default=None)
+        naif = min((m for m in modeller if m["anahtar"] not in bizimkiler),
+                   key=lambda m: m["mape"], default=None)
+        ozet = ""
+        if bizim and naif:
+            ozet = ("<p class='grafik-alt' style='margin-top:14px'>"
+                    + C("En iyi modelimiz <b>{a}</b> (MAPE %{am}); en iyi naif kıyas "
+                        "<b>{b}</b> (%{bm}). Aralık ~%{h} için kuruldu; kapsama buna ne "
+                        "kadar yakınsa belirsizlik o kadar dürüst.",
+                        a=C(bizim["ad"]), am=f"{bizim['mape']:.1f}",
+                        b=C(naif["ad"]), bm=f"{naif['mape']:.1f}", h=kar["kapsama_hedef"])
+                    + "</p>")
+        karsilastirma_govde = tablo + cubuklar + ozet
+    else:
+        karsilastirma_govde = grafik.bos(
+            C("Karşılaştırma için yeterli geçmiş gün yok."))
+
     giris = C("Bu sayfa tahminin ne kadar güvenilir olduğunu gösterir. Üstte, modeli "
               "ilk N günle kurup N+1'inci günü tahmin eden, sonra N'i birer birer "
               "artıran bir test var (gün tahmin edilirken o gün modelde yoktur, yani "
@@ -2212,6 +2363,12 @@ def sayfa_tahmin_gunlugu(baglanti, sorgu):
     return f"""
 <div class="kart tam"><h2>{C("Tahmin günlüğü ve geriye dönük test")}</h2>
 <p class="bos">{giris}</p></div>
+<div class="kart"><h2>{C("Temel modellerle karşılaştırma")}</h2>
+<p class="bos">{C("Beş model aynı adil koşulda yarışır (her gün yalnızca kendinden "
+                  "önceki günlerle). Üç ölçüt: MAE (ortalama mutlak hata), MAPE "
+                  "(yüzde hata) ve aralık kapsama (gerçekleşenin ~%{h} tahmin "
+                  "aralığına düşme oranı).", h=kar["kapsama_hedef"])}</p>
+{karsilastirma_govde}</div>
 <div class="kart"><h2>{C("Gün sayısına karşı hata eğrisi")}</h2>
 <p class="bos">{C("Az veriyle dürüst tahmin iddiasının grafiksel kanıtı: gün biriktikçe "
                   "ortalama hata düşüp oturuyor mu?")}</p>
@@ -2220,7 +2377,13 @@ def sayfa_tahmin_gunlugu(baglanti, sorgu):
 <p class="bos">{C("Her gün sabah üretilen tahmin ve o akşam gerçekleşen ciro. Sapma "
                   "%20'nin altındaysa yeşil; ✓ işareti gerçekleşenin tahmin aralığına "
                   "düştüğünü gösterir.")}</p>
-{gunluk_govde}</div>"""
+{gunluk_govde}</div>
+<div class="kart"><h2>{C("Fire mi, kaçan satış mı? — gazeteci çocuk sınaması")}</h2>
+<p class="bos">{C("Dondurma ve pasta bozulur: fazla üretim fire, az üretim kaçan satış. "
+                  "Tahminin dağılımı elde olduğu için, her ürünün kârına göre en kârlı "
+                  "üretim miktarı seçilir (gazeteci çocuk / newsvendor). Bu kural, hesap "
+                  "tarafındaki eski 14 günlük ortalamaya karşı geçmiş sezonda sınandı.")}</p>
+{_fire_kiyasi_govde(baglanti)}</div>"""
 
 
 # ---------------------------------------------------------------- ozel gunler
