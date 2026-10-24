@@ -172,3 +172,64 @@ def kisa_para(deger, para_birimi="TL"):
     if metin.endswith(",0"):
         metin = metin[:-2]
     return f"{metin}{ek} {para_birimi}".strip()
+
+
+def cizgi_grafigi(seriler, x_etiketler, tavan, tavan_metni, aria, altyazi=""):
+    """Gun sayisina karsi hata egrisi gibi cizgiler. SVG, acik temaya gore.
+
+    seriler: [{"ad":..., "renk":..., "degerler":[y,...]}]; hepsi ayni x
+    noktalarini paylasir. tavan: y ekseninin tepesi (0..tavan). x_etiketler
+    noktalarin altina yazilir (seyreltilir). Grafik goz icindir; kesin
+    rakamlar yanindaki tabloda durur.
+    """
+    uzun = max((len(s["degerler"]) for s in seriler), default=0)
+    if uzun < 2 or tavan <= 0:
+        return bos()
+    W, H = 100.0, 60.0
+
+    def nokta_dizi(degerler):
+        n = len(degerler)
+        pts = []
+        for i, v in enumerate(degerler):
+            x = (i / (n - 1)) * W if n > 1 else 0
+            y = H - _kirp_oran(v, tavan) * H
+            pts.append(f"{x:.2f},{y:.2f}")
+        return pts
+
+    # Soluk yatay izgara (0/25/50/75/100%)
+    izgara = "".join(
+        f'<line x1="0" y1="{H - o * H:.2f}" x2="{W}" y2="{H - o * H:.2f}" '
+        f'stroke="#e6ebf0" stroke-width="0.4"/>'
+        for o in (0.25, 0.5, 0.75, 1.0)
+    )
+    cizgiler = ""
+    for s in seriler:
+        pts = nokta_dizi(s["degerler"])
+        cizgiler += (f'<polyline fill="none" stroke="{_k(s["renk"])}" stroke-width="1.1" '
+                     f'stroke-linejoin="round" stroke-linecap="round" '
+                     f'vector-effect="non-scaling-stroke" points="{" ".join(pts)}"/>')
+        # son noktayi vurgula
+        if pts:
+            sx, sy = pts[-1].split(",")
+            cizgiler += f'<circle cx="{sx}" cy="{sy}" r="1.3" fill="{_k(s["renk"])}"/>'
+
+    svg = (f'<svg class="cizgi-svg" viewBox="0 0 {W:.0f} {H:.0f}" preserveAspectRatio="none" '
+           f'role="img" aria-label="{_k(aria)}">{izgara}{cizgiler}</svg>')
+
+    etiketler = "".join(f"<span>{_k(e)}</span>"
+                        for e in etiket_seyrelt(x_etiketler, 8))
+    gosterge = "".join(
+        f'<span class="gosterge"><i style="background:{_k(s["renk"])}"></i>{_k(s["ad"])}</span>'
+        for s in seriler)
+    alt = f'<p class="grafik-alt">{_k(altyazi)}</p>' if altyazi else ""
+    return (f'<div class="cizgi-grafik">'
+            f'<div class="sutun-tavan"><span>{_k(tavan_metni)}</span></div>'
+            f'{svg}<div class="sutun-etiketler">{etiketler}</div>'
+            f'<div class="gostergeler">{gosterge}</div>{alt}</div>')
+
+
+def _kirp_oran(deger, tavan):
+    """0..1 arasi; tavani asani tepede tutar."""
+    if tavan <= 0:
+        return 0.0
+    return max(0.0, min(1.0, deger / tavan))

@@ -319,6 +319,13 @@ table.sabit td { overflow-wrap:anywhere; }
 .sutun-etiketler span:last-child { text-align:right; }
 .grafik-alt { margin:10px 0 0; font-size:14px; color:#4a5b6e; }
 .grafik-alt b { color:#1c2733; }
+/* Cizgi grafik (tahmin hata egrisi) */
+.cizgi-grafik { position:relative; padding-top:18px; margin-top:4px; }
+.cizgi-grafik .sutun-tavan { position:absolute; left:0; right:0; top:18px; }
+.cizgi-svg { display:block; width:100%; height:200px; margin-top:0; }
+.gostergeler { display:flex; flex-wrap:wrap; gap:14px; margin-top:10px; }
+.gosterge { display:inline-flex; align-items:center; gap:6px; font-size:13.5px; color:#4a5b6e; }
+.gosterge i { width:14px; height:3px; border-radius:2px; display:inline-block; }
 /* Raporun uc buyuk rakami: az sayida olduklari icin seridi paylasarak doldururlar. */
 .kutular.baslik { grid-template-columns:repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
 .hava-simge { margin-right:6px; }
@@ -379,7 +386,7 @@ MENU = [
     ("/uretim", "Üretim", "🥛", ()),
     ("/stok", "Stok", "📦", ()),
     ("/para", "Alım / Gider", "💰", ("/calisanlar",)),
-    ("/ozet", "Raporlar", "📊", ("/tahmin", "/ozel-gunler")),
+    ("/ozet", "Raporlar", "📊", ("/tahmin", "/tahmin-gunlugu", "/ozel-gunler")),
     ("/ayarlar", "Ayarlar", "⚙️", ("/kalemler", "/kalem", "/menuler")),
 ]
 
@@ -763,6 +770,14 @@ def islem_kurulum(baglanti, veri):
 
 def sayfa_bugun(baglanti, sorgu):
     tarih = hesap.bugun()
+    # Gunun tahminini bir kez kaydet, gecmisin gerceklesenini esleştir. Ana menu
+    # her gun acildigi icin gunluk burada kendiliginden birikir; tahmin kapaliysa
+    # ya da bir aksilik olursa sessizce atlanir, sayfa her halukarda acilir.
+    if ayar(baglanti, "tahmin_acik", "1") == "1":
+        try:
+            tahmin_modulu.gunluk_guncelle(baglanti)
+        except Exception:
+            pass
     ozet = hesap.gun_ozeti(baglanti, tarih)
 
     kutular = (
@@ -2117,7 +2132,95 @@ def sayfa_tahmin(baglanti, sorgu):
 <p class="bos" style="margin-top:12px">{aralik_not}</p>
 {kirilim}</div>
 {uretim_karti}
+{_tahmin_gunlugu_baglantisi()}
 {_ozel_gun_karti()}"""
+
+
+def _tahmin_gunlugu_baglantisi():
+    return f"""
+<div class="kart"><h2>{C("Tahmin ne kadar tutuyor?")}</h2>
+<p class="bos">{C("Her gün verdiği tahmini kaydedip akşam gerçekleşenle karşılaştırır; "
+                  "ayrıca geçmişin tamamında 'az veriyle ne kadar isabet' testini yapar.")}</p>
+<p style="margin:12px 0 0"><a class="sablon" href="/tahmin-gunlugu">
+<b>{C("Tahmin günlüğü ve geriye dönük test")}</b>
+{C("Sabah ne dedik, akşam ne oldu · gün sayısına karşı hata eğrisi")}</a></p></div>"""
+
+
+def sayfa_tahmin_gunlugu(baglanti, sorgu):
+    test = tahmin_modulu.geriye_donuk_test(baglanti)
+    gunluk = tahmin_modulu.tahmin_gunlugu(baglanti)
+
+    # --- 1. Geriye donuk test: hata egrisi ---
+    adimlar = test["adimlar"]
+    if len(adimlar) >= 2:
+        tavan = max(max(a["ort_m"], a["ort_k"]) for a in adimlar) * 1.08 or 1.0
+        egri = grafik.cizgi_grafigi(
+            [{"ad": C("Model"), "renk": grafik.MAVI,
+              "degerler": [a["ort_m"] for a in adimlar]},
+             {"ad": C("Düz ortalama (kıyas)"), "renk": grafik.TURUNCU,
+              "degerler": [a["ort_k"] for a in adimlar]}],
+            [str(a["n"]) for a in adimlar],
+            tavan, C("%{t} hata", t=f"{tavan:.0f}"),
+            C("Gün sayısına karşı ortalama yüzde hata; model ve düz ortalama kıyası."),
+            C("Yatay eksen: modelin gördüğü gün sayısı. Dikey eksen: o güne kadarki "
+              "ortalama yüzde hata. Veri arttıkça hata oturuyor — tezin kanıtı bu eğri."))
+        ozet = C("Geçmişin tamamında model ortalama <b>%{m}</b> yanıldı; "
+                 "yalnızca ortalamaya bakan kıyas <b>%{k}</b>. "
+                 "{n} gün tek tek, sadece kendinden önceki günlerle tahmin edildi.",
+                 m=f"{test['ort_hata_model']:.0f}", k=f"{test['ort_hata_kiyas']:.0f}",
+                 n=test["deger_sayisi"])
+        test_govde = f'{egri}<p class="grafik-alt" style="margin-top:14px">{ozet}</p>'
+    else:
+        test_govde = grafik.bos(C("Geriye dönük test için yeterli geçmiş gün yok "
+                                  "(en az {n} günden sonrası gerekir).", n=test["en_az_gun"] + 2))
+
+    # --- 2. Tahmin gunlugu tablosu ---
+    if gunluk:
+        satirlar = ""
+        for g in gunluk:
+            tah = (f"{para(g['tahmin'])}" if g["tahmin"] is not None
+                   else f"<span class='bos'>{C('tahmin yok')}</span>")
+            if g["tahmin"] is not None and g["alt"] is not None:
+                tah += (f"<div class='bos' style='font-size:13px'>"
+                        f"{tl(g['alt'])} – {tl(g['ust'])}</div>")
+            ger = para(g["gercek"]) if g["gercek"] is not None else "—"
+            if g["sapma"] is None:
+                sapma = "—"
+            else:
+                renk = "yesil" if g["sapma"] <= 20 else ("" if g["sapma"] <= 40 else "kirmizi")
+                im = "✓ " if g["isabet"] else ""
+                sapma = f"<span class='{renk}'>{im}%{g['sapma']:.0f}</span>"
+            satirlar += (f"<tr><td>{kacir(gun_yaz(g['tarih'], False))}</td>"
+                         f"<td class='sag'>{tah}</td>"
+                         f"<td class='sag'>{ger}</td>"
+                         f"<td class='sag'>{sapma}</td>"
+                         f"<td class='sag'>{g['model_gun']}</td></tr>")
+        gunluk_govde = (f"<table><tr><th>{C('Tarih')}</th>"
+                        f"<th class='sag'>{C('Tahmin (aralık)')}</th>"
+                        f"<th class='sag'>{C('Gerçekleşen')}</th>"
+                        f"<th class='sag'>{C('Sapma')}</th>"
+                        f"<th class='sag'>{C('Model günü')}</th></tr>{satirlar}</table>")
+    else:
+        gunluk_govde = grafik.bos(C("Henüz tahmin günlüğü oluşmadı. Program her gün "
+                                    "açıldığında o günün tahminini buraya yazar."))
+
+    giris = C("Bu sayfa tahminin ne kadar güvenilir olduğunu gösterir. Üstte, modeli "
+              "ilk N günle kurup N+1'inci günü tahmin eden, sonra N'i birer birer "
+              "artıran bir test var (gün tahmin edilirken o gün modelde yoktur, yani "
+              "geleceğe bakma yok). Altta, günlük tutulan 'sabah tahmini — akşam "
+              "gerçekleşen' kayıtları.")
+    return f"""
+<div class="kart tam"><h2>{C("Tahmin günlüğü ve geriye dönük test")}</h2>
+<p class="bos">{giris}</p></div>
+<div class="kart"><h2>{C("Gün sayısına karşı hata eğrisi")}</h2>
+<p class="bos">{C("Az veriyle dürüst tahmin iddiasının grafiksel kanıtı: gün biriktikçe "
+                  "ortalama hata düşüp oturuyor mu?")}</p>
+{test_govde}</div>
+<div class="kart"><h2>{C("Sabah ne dedik, akşam ne oldu")}</h2>
+<p class="bos">{C("Her gün sabah üretilen tahmin ve o akşam gerçekleşen ciro. Sapma "
+                  "%20'nin altındaysa yeşil; ✓ işareti gerçekleşenin tahmin aralığına "
+                  "düştüğünü gösterir.")}</p>
+{gunluk_govde}</div>"""
 
 
 # ---------------------------------------------------------------- ozel gunler
@@ -3364,6 +3467,7 @@ SAYFALAR = {
     "/menuler": ("Menüler", sayfa_menuler),
     "/kalem": ("Kalem", sayfa_kalem),
     "/tahmin": ("Tahmin", sayfa_tahmin),
+    "/tahmin-gunlugu": ("Tahmin günlüğü", sayfa_tahmin_gunlugu),
     "/ozel-gunler": ("Özel Günler", sayfa_ozel_gunler),
     "/ayarlar": ("Ayarlar", sayfa_ayarlar),
     "/kurulum": ("Kurulum", sayfa_kurulum),

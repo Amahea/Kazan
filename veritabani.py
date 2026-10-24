@@ -252,6 +252,24 @@ CREATE TABLE IF NOT EXISTS hava (
     guncelleme  TEXT NOT NULL DEFAULT ''
 );
 
+-- Tahmin gunlugu: her gun sabah uretilen tahmin buraya yazilir, aksam
+-- gerceklesen ciroyla eslestirilir. "Sabah ne dedik, aksam ne oldu" kaydi;
+-- tahminin durustlugunun zaman icindeki kaniti. Bugune ait satir, model o
+-- gunu disarida birakarak kuruldugu icin gun ici satislardan etkilenmez.
+CREATE TABLE IF NOT EXISTS tahmin_kayitlari (
+    tarih       TEXT PRIMARY KEY,          -- bir gun = bir satir
+    tahmin      REAL,                       -- sabah tahmin edilen ciro (yeterli degilse bos)
+    alt         REAL,                       -- tahmin araliginin alti
+    ust         REAL,                       -- ustu
+    gercek      REAL,                       -- aksam gerceklesen ciro (satislardan)
+    model_gun   INTEGER NOT NULL DEFAULT 0, -- tahmin aninda modelin gordugu gun sayisi
+    yeterli     INTEGER NOT NULL DEFAULT 0, -- model tahmin verecek kadar veri gordu mu
+    sicaklik    REAL,                       -- o gunun (tahmini) en yuksek sicakligi
+    yagmurlu    INTEGER NOT NULL DEFAULT 0,
+    kaydedildi  TEXT NOT NULL DEFAULT '',   -- tahminin yazildigi an
+    gercek_yaz  TEXT NOT NULL DEFAULT ''    -- gerceklesenin eslestirildigi an
+);
+
 -- Ozel gunler ve donemler: resmi tatiller, dini bayramlar, findik toplama gibi
 -- satisi normalden farkli yapan zamanlar. Model her ETIKET icin tek bir katsayi
 -- ogrenir; ayni etiketi paylasan satirlar ayni havuza girer.

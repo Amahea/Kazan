@@ -1125,4 +1125,60 @@ SOZLUK = {
     "Kaba konan miktar değişken; kaç kg sattığın elle yazılır":
         "The amount per cup varies; you enter how many kg you sold by hand",
     "Pastanın tabanı": "The base of the cake",
+
+    # --- Tahmin gunlugu ve geriye donuk test ---
+    "Tahmin günlüğü": "Forecast log",
+    "Tahmin ne kadar tutuyor?": "How accurate is the forecast?",
+    "Her gün verdiği tahmini kaydedip akşam gerçekleşenle karşılaştırır; ayrıca "
+    "geçmişin tamamında 'az veriyle ne kadar isabet' testini yapar.":
+        "It records each day's forecast and compares it with the evening's actual; "
+        "it also runs a 'how accurate with little data' test across all history.",
+    "Tahmin günlüğü ve geriye dönük test": "Forecast log and backtest",
+    "Sabah ne dedik, akşam ne oldu · gün sayısına karşı hata eğrisi":
+        "What we said in the morning vs the evening · error curve by day count",
+    "Model": "Model",
+    "Düz ortalama (kıyas)": "Flat average (baseline)",
+    "%{t} hata": "{t}% error",
+    "Gün sayısına karşı ortalama yüzde hata; model ve düz ortalama kıyası.":
+        "Average percent error by day count; model vs flat-average baseline.",
+    "Yatay eksen: modelin gördüğü gün sayısı. Dikey eksen: o güne kadarki ortalama "
+    "yüzde hata. Veri arttıkça hata oturuyor — tezin kanıtı bu eğri.":
+        "Horizontal axis: days the model has seen. Vertical axis: average percent "
+        "error up to that point. As data grows the error settles — this curve is "
+        "the proof of the thesis.",
+    "Geçmişin tamamında model ortalama <b>%{m}</b> yanıldı; yalnızca ortalamaya "
+    "bakan kıyas <b>%{k}</b>. {n} gün tek tek, sadece kendinden önceki günlerle "
+    "tahmin edildi.":
+        "Across all history the model was off by <b>{m}%</b> on average; the "
+        "baseline that only looks at the average, <b>{k}%</b>. {n} days were each "
+        "predicted using only the days before them.",
+    "Geriye dönük test için yeterli geçmiş gün yok (en az {n} günden sonrası gerekir).":
+        "Not enough past days for a backtest (needs more than {n} days).",
+    "tahmin yok": "no forecast",
+    "Tahmin (aralık)": "Forecast (range)",
+    "Gerçekleşen": "Actual",
+    "Sapma": "Deviation",
+    "Model günü": "Model days",
+    "Henüz tahmin günlüğü oluşmadı. Program her gün açıldığında o günün tahminini "
+    "buraya yazar.":
+        "No forecast log yet. Each day the program is opened, it records that day's "
+        "forecast here.",
+    "Bu sayfa tahminin ne kadar güvenilir olduğunu gösterir. Üstte, modeli ilk N "
+    "günle kurup N+1'inci günü tahmin eden, sonra N'i birer birer artıran bir test "
+    "var (gün tahmin edilirken o gün modelde yoktur, yani geleceğe bakma yok). "
+    "Altta, günlük tutulan 'sabah tahmini — akşam gerçekleşen' kayıtları.":
+        "This page shows how reliable the forecast is. Above is a test that builds "
+        "the model from the first N days, predicts day N+1, then increases N one by "
+        "one (the day being predicted is never in the model, so there's no peeking "
+        "at the future). Below are the daily 'morning forecast — evening actual' records.",
+    "Gün sayısına karşı hata eğrisi": "Error curve by day count",
+    "Az veriyle dürüst tahmin iddiasının grafiksel kanıtı: gün biriktikçe ortalama "
+    "hata düşüp oturuyor mu?":
+        "Graphical proof of the 'honest forecasting with little data' claim: as days "
+        "accumulate, does the average error drop and settle?",
+    "Sabah ne dedik, akşam ne oldu": "What we said in the morning vs the evening",
+    "Her gün sabah üretilen tahmin ve o akşam gerçekleşen ciro. Sapma %20'nin "
+    "altındaysa yeşil; ✓ işareti gerçekleşenin tahmin aralığına düştüğünü gösterir.":
+        "Each day's morning forecast and that evening's actual revenue. Deviation "
+        "under 20% is green; a ✓ means the actual fell within the forecast range.",
 }

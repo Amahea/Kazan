@@ -44,6 +44,10 @@ def _tarihe_cevir(metin):
     return datetime.datetime.strptime(metin, "%Y-%m-%d").date()
 
 
+def _simdi():
+    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+
+
 def _kirp(deger, alt, ust):
     return max(alt, min(ust, deger))
 
@@ -99,7 +103,17 @@ def gecmis_gunler(baglanti):
 
 def model_kur(baglanti):
     """Gecmisten katsayilari cikarir. Her zaman bir sozluk doner."""
-    gunler = gecmis_gunler(baglanti)
+    return model_kur_gunlerden(gecmis_gunler(baglanti))
+
+
+def model_kur_gunlerden(gunler):
+    """Verilen gun kayit listesinden modeli kurar.
+
+    model_kur bunu butun gecmisle cagirir; geriye donuk test ise ilk N gunle
+    cagirip N+1'inci gunu tahmin eder. Boylece 'az veriyle ne kadar isabet'
+    sorusu gercek gecmis uzerinde olculebilir. Gun kayitlari gecmis_gunler'in
+    dondurdugu bicimdedir (tarih/ciro/sicaklik/yagmurlu/gun/etiketler).
+    """
     model = {
         "gun_sayisi": len(gunler),
         "ortalama": 0.0,
@@ -373,6 +387,133 @@ def ileri_tahmin(baglanti, gun_sayisi=7):
         tahminler.append(gun_tahmini(baglanti, tarih, model, paylar,
                                      harita.get(tarih, set())))
     return model, tahminler, uretim_onerisi(baglanti, tahminler)
+
+
+# ---------------------------------------------------------------- tahmin gunlugu
+
+def gunluk_guncelle(baglanti):
+    """Gunun tahminini kaydeder ve gecmis gunlerin gerceklesenini eşleştirir.
+
+    Iki is yapar, ikisi de zararsiz tekrar edilebilir:
+      1. Bugune ait bir tahmin satiri yoksa, o anki modelin bugun icin tahminini
+         yazar. Model gecmis_gunler'i kullanir ve o **bugunu disarida birakir**;
+         yani kaydedilen rakam gun ici satislardan etkilenmez, 'sabah tahmini'dir.
+      2. Gecmiste tahmini olup gerceklesen cirosu henuz yazilmamis gunleri,
+         satislardan gelen gercek ciroyla doldurur.
+
+    Boylece "sabah ne dedik, aksam ne oldu" ikilisi kendiliginden birikir;
+    tahminin durustlugu sonradan olculebilir.
+    """
+    bugun = hesap.bugun()
+
+    # 2. Gecmisin gerceklesenini doldur (yalnizca satisi girilmis gunler).
+    baglanti.execute(
+        "UPDATE tahmin_kayitlari SET"
+        " gercek = (SELECT SUM(tutar) FROM satislar WHERE tarih = tahmin_kayitlari.tarih),"
+        " gercek_yaz = ?"
+        " WHERE tarih < ? AND gercek IS NULL"
+        " AND EXISTS (SELECT 1 FROM satislar WHERE tarih = tahmin_kayitlari.tarih)",
+        (_simdi(), bugun),
+    )
+
+    # 1. Bugunun tahminini bir kez yaz.
+    var = baglanti.execute(
+        "SELECT 1 FROM tahmin_kayitlari WHERE tarih = ?", (bugun,)
+    ).fetchone()
+    if not var:
+        model = model_kur(baglanti)
+        hava_satiri = hava.gun(baglanti, bugun)
+        gun_no = _tarihe_cevir(bugun).weekday()
+        etiketler = takvim.etiket_haritasi(baglanti, bugun, bugun).get(bugun, set())
+        sicaklik = hava_satiri["en_yuksek"] if hava_satiri else None
+        yagmurlu = bool(hava_satiri["yagmurlu"]) if hava_satiri else False
+        if model["yeterli"]:
+            ciro = _uygula(model, sicaklik, yagmurlu, gun_no, etiketler)
+            pay = max(model["hata_payi"], ciro * 0.15)
+            tahmin, alt, ust = ciro, max(ciro - pay, 0.0), ciro + pay
+        else:
+            # Az veriyle tahmin vermeyi reddeder; satir yine de durustluk icin
+            # tutulur ama tahmin bos kalir.
+            tahmin = alt = ust = None
+        baglanti.execute(
+            "INSERT INTO tahmin_kayitlari"
+            " (tarih, tahmin, alt, ust, model_gun, yeterli, sicaklik, yagmurlu, kaydedildi)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (bugun, tahmin, alt, ust, model["gun_sayisi"],
+             1 if model["yeterli"] else 0, sicaklik, 1 if yagmurlu else 0, _simdi()),
+        )
+    baglanti.commit()
+
+
+def tahmin_gunlugu(baglanti, limit=60):
+    """Tahmin gunlugunu yeni gunden eskiye okur; sapma yuzdesini hesaplar."""
+    satirlar = baglanti.execute(
+        "SELECT tarih, tahmin, alt, ust, gercek, model_gun, yeterli, sicaklik, yagmurlu"
+        " FROM tahmin_kayitlari ORDER BY tarih DESC LIMIT ?", (limit,)
+    ).fetchall()
+    sonuc = []
+    for s in satirlar:
+        sapma = None
+        if s["tahmin"] is not None and s["gercek"] is not None and s["gercek"] > 0:
+            sapma = abs(s["tahmin"] - s["gercek"]) / s["gercek"] * 100
+        sonuc.append({
+            "tarih": s["tarih"], "tahmin": s["tahmin"], "alt": s["alt"], "ust": s["ust"],
+            "gercek": s["gercek"], "model_gun": s["model_gun"],
+            "yeterli": bool(s["yeterli"]), "sicaklik": s["sicaklik"],
+            "yagmurlu": bool(s["yagmurlu"]), "sapma": sapma,
+            # Tahmin, araligin icinde mi tutturdu?
+            "isabet": (s["tahmin"] is not None and s["gercek"] is not None
+                       and s["alt"] is not None and s["ust"] is not None
+                       and s["alt"] <= s["gercek"] <= s["ust"]),
+        })
+    return sonuc
+
+
+def geriye_donuk_test(baglanti):
+    """Kayan baslangicli geriye donuk test (rolling-origin backtest).
+
+    Modeli ilk N gunle kurar, N+1'inci gunu tahmin eder, N'i bir artirir.
+    Her adimda modelin ve basit bir kiyasin (yalnizca gecmisin ortalamasi)
+    yuzde hatasi olculur. Dondurulen 'adimlar' listesindeki birikimli ortalama
+    hata (ort_m / ort_k), gun sayisina karsi cizilince projenin ana tezinin -
+    'az veriyle durust tahmin' - grafik kanitidir.
+
+    Onemli: her adimda model yalnizca o gune kadarki gunleri gorur; tahmin
+    edilen gun egitimde yoktur. Gecmise bakip gelecegi bilmek (veri sizmasi) yok.
+    """
+    gunler = gecmis_gunler(baglanti)
+    adimlar = []
+    mh_toplam = kh_toplam = 0.0
+    say = 0
+    for n in range(EN_AZ_GUN, len(gunler)):
+        model = model_kur_gunlerden(gunler[:n])
+        if not model["yeterli"]:
+            continue
+        hedef = gunler[n]
+        gercek = hedef["ciro"]
+        if gercek <= 0:
+            continue
+        tahmin = _uygula(model, hedef["sicaklik"], hedef["yagmurlu"],
+                         hedef["gun"], hedef["etiketler"])
+        kiyas = model["ortalama"]            # saf kiyas: gecmisin ortalamasi
+        hata_m = abs(tahmin - gercek) / gercek * 100
+        hata_k = abs(kiyas - gercek) / gercek * 100
+        say += 1
+        mh_toplam += hata_m
+        kh_toplam += hata_k
+        adimlar.append({
+            "n": n, "tarih": hedef["tarih"], "tahmin": tahmin, "gercek": gercek,
+            "kiyas": kiyas, "hata_m": hata_m, "hata_k": hata_k,
+            "ort_m": mh_toplam / say, "ort_k": kh_toplam / say,
+        })
+    return {
+        "adimlar": adimlar,
+        "deger_sayisi": say,
+        "toplam_gun": len(gunler),
+        "en_az_gun": EN_AZ_GUN,
+        "ort_hata_model": (mh_toplam / say) if say else None,
+        "ort_hata_kiyas": (kh_toplam / say) if say else None,
+    }
 
 
 def ozel_gun_beklentisi(baglanti, model, gun_sayisi=90):
