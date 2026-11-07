@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Denemelik bir sezon uretir. GUNLER UYDURMADIR, OLCULER DUKKANIN KENDISINDEN.
 
-15 Mayis - 21 Agustos 2026 arasi bir sezon yazar: alim, uretim, gun sonu
-sayimi, gider, tedarikciye odeme.
+1 Ocak - 10 Eylul 2026 arasi TAM bir sezon yazar: kis + yaz. Alim, uretim, gun
+sonu sayimi, gider, tedarikciye odeme.
 
 Dukkanin calisma sekli (2026 Agustos'ta sahibinden alindi):
   - Satilan sey dondurmanin kendisi. Bir top 60 gram, 60 TL; yani 1.000 TL/kg.
@@ -12,11 +12,24 @@ Dukkanin calisma sekli (2026 Agustos'ta sahibinden alindi):
     degil, giden kilodan hesaplaniyor.
   - Gun sonunda rafta kalan ambalaj ve her kazanda kalan kilo yaziliyor;
     ne satildigini program aradaki farktan buluyor.
-  - Normal bir gunde 30 kg, yogun bir gunde 60 kg dondurma gidiyor.
+  - Yaz ortasinda normal bir gunde 30 kg, yogun bir gunde 60 kg dondurma gidiyor.
     Ambalaj birbirine su oranda: 2200 kulah, 500 kap, 50 kagit helva.
   - Hafta sonu hafta icinin 2 kati (yogun gun budur). Yagmurlu gunde satis
-    ucte bir duser. Sezon basi ve sonu yaz ortasindan cok farkli degil.
-  - Kadro calisanlar tablosunda: usta + iki tezgahtar, biri sezonluk.
+    ucte bir duser.
+
+Mevsim - bu betigin can alici yeri: talep havaya baglidir, takvime degil.
+  - Dondurma, gunluk EN YUKSEK SICAKLIGA gore iner cikar: yaz ortasi (27C)
+    tam hacim, kis (8C) bunun ucte biri kadar. Boylece ocaktan agustosa dogal
+    bir yukselis, sonbahara dogru inis cikar - tahmin modelinin mevsimselligi
+    ogrenecegi gercek bir egri.
+  - Kis menusu: soguk gunlerde yalnizca KIS_CESITLERI (6 cesit) cirpilir,
+    gerisi o gun hic uretilmez/satilmaz (menuler tablosundaki esikle uyumlu).
+  - Sahlep (bardak, 150 TL) kis icecegi: soguk arttikca satisi artar, yazin
+    neredeyse sifir. Bardak bardak, dogrudan (elle) satilir.
+  - 1 Temmuz'da fiyatlara ~%15 zam var; ondan onceki satislar daha ucuz fiyatla
+    yazilir. Nominal ciro zamla sicrar ama gercek (sabit fiyatli) talep duz
+    kalir - tahmin ekranindaki 'gercek talep' bunu ayikladigini gosterir.
+  - Kadro calisanlar tablosunda: kisin usta + 1 tezgahtar, yazin + sezonluk.
     Maas gideri o tablodan uretilir, betikte sabit degildir.
 
 Uydurma olmayan bir sey daha var: hava. Ordu'nun o gunlerdeki gercek olcumleri
@@ -44,11 +57,16 @@ import hava
 import hesap
 import veritabani
 
-BASLANGIC = datetime.date(2026, 5, 15)
-BITIS = datetime.date(2026, 8, 21)
+BASLANGIC = datetime.date(2026, 1, 1)
+BITIS = datetime.date(2026, 9, 10)
 ENLEM, BOYLAM = 40.9838, 37.8858
-KILO_FIYATI = 1000.0     # 1 top = 60 gram = 60 TL, yani kilosu 1.000 TL
+KILO_FIYATI = 1000.0     # 1 top = 60 gram = 60 TL, yani kilosu 1.000 TL (GUNCEL/final fiyat)
 TOP_GRAM = 60.0
+
+# 1 Temmuz zammi: ondan onceki gunler fiyatlarin ONCE_FIYAT_ORANI kati ile
+# yazilir (~%15 daha ucuz). Nominal ciro 1 Temmuz'da sicrar; gercek talep duz.
+ZAM_TARIHI = datetime.date(2026, 7, 1)
+ONCE_FIYAT_ORANI = 0.87
 
 random.seed(20260822)
 
@@ -56,6 +74,18 @@ SUT, SEKER, SAHLEP, VANILYA = 2, 3, 4, 5
 KULAH, CORNETTE, K_KAP, O_KAP, B_KAP, K_HELVA, B_HELVA = 9, 10, 11, 12, 13, 14, 15
 KILO_KABI, PET_SU, KASIK, PECETE, MENDIL = 16, 17, 18, 19, 20
 SADE_URUN = 56
+
+# Kis icecegi sahlep (bardak) ve recetesinin malzemeleri.
+SAHLEP_BARDAK = 96
+TARCIN, KARTON_BARDAK, HAZIR_SAHLEP = 93, 94, 95
+SAHLEP_BARDAK_FIYAT = 150.0          # GUNCEL fiyat; zamdan once ONCE_ORANI ile
+HAZIR_SAHLEP_FIYAT = 360.0           # litre basi alis (uydurma, gecici)
+
+# Kis menusu: soguk gunlerde yalnizca bu 6 cesit cirpilir, sahlep acilir.
+KIS_CESITLERI = {
+    "Sade Dondurma", "Çikolatalı Dondurma", "Çilekli Dondurma",
+    "Fındıklı Dondurma", "Karamelli Dondurma", "Vişneli Dondurma",
+}
 
 # Bir kulaha ortalama kac top konuyor. Dukkanda 2 toplu da satiliyor 3 toplu
 # da; ortalama buradan degistirilir, gunluk kulah adedi kendiliginden ayarlanir.
@@ -211,21 +241,82 @@ def havayi_yaz(baglanti, gunluk):
 
 
 # ---------------------------------------------------------------- talep
-# Dukkan sahibi "sezon basi ve sonu yaz ortasindan cok farkli degil" dedi;
-# bu yuzden mevsim egrisi neredeyse duz, sadece iki ucta hafif bir inis var.
-MEVSIM = [(0, 0.96), (15, 1.00), (90, 1.00), (98, 0.96)]
 # Hafta ici gunler esit, cumartesi-pazar 2 kati: 30 kg'lik normal gunun
 # karsiligi 60 kg'lik yogun gun.
 HAFTA = [1.0, 1.0, 1.0, 1.0, 1.0, 2.0, 2.0]          # Pzt..Paz
 
 
-def mevsim_carpani(gun_no):
-    for sira in range(len(MEVSIM) - 1):
-        x1, y1 = MEVSIM[sira]
-        x2, y2 = MEVSIM[sira + 1]
-        if x1 <= gun_no <= x2:
-            return y1 + (y2 - y1) * (gun_no - x1) / (x2 - x1)
-    return MEVSIM[-1][1]
+def _kirp(deger, alt, ust):
+    return max(alt, min(ust, deger))
+
+
+def dondurma_mevsim(sicaklik):
+    """Dondurma talebinin mevsim carpani, gunluk EN YUKSEK SICAKLIGA bagli.
+
+    Takvime degil havaya bakar: yaz ortasi (~27C) tam hacim (1.0), kis (~8C)
+    bunun ucte biri (0.33). Arada dogrusal; cok sicak/soguk uclarda yumusak
+    sinir. Ordu'nun gercek sicaklik serisiyle carpilinca ocaktan agustosa
+    dogal bir yukselis cikar - 'orta' yogunlukta, kisin da canli bir tezgah.
+    """
+    return _kirp(0.33 + (1.0 - 0.33) * (sicaklik - 8.0) / (27.0 - 8.0), 0.30, 1.10)
+
+
+def menu_rejimi(gunluk_hava, baslangic, bitis):
+    """Her gun kis menusu mu, SUREKLI bir rejim olarak. Takvim gununden degil,
+    10 gunluk kayan ortalama sicakliktan karar verir; histerezisle tek bir
+    bahar gecisi ve tek bir sonbahar gecisi olur (menuler tablosundaki esikler:
+    yaza >= 20'de gecilir, kisa <= 17'de donulur).
+
+    Neden gunluk degil: dukkan tek bir ilik kis gununde butun menuyu acmaz.
+    Talebin HACMI gune gore oynar (dondurma_mevsim), ama hangi cesitlerin
+    acildigi mevsimlik bir karardir - menu feature'inin yaptigi da bu.
+    """
+    pencere, kis, seri, sonuc = 10, True, [], {}
+    tarih = baslangic
+    son_sic = 12.0
+    while tarih <= bitis:
+        anahtar = tarih.isoformat()
+        son_sic = gunluk_hava.get(anahtar, (son_sic, 0.0))[0]
+        seri.append(son_sic)
+        ort = sum(seri[-pencere:]) / len(seri[-pencere:])
+        if kis and ort >= 20.0:
+            kis = False
+        elif not kis and ort <= 17.0:
+            kis = True
+        sonuc[anahtar] = kis
+        tarih += datetime.timedelta(days=1)
+    return sonuc
+
+
+def sahlep_talebi(sicaklik, weekday, yagis):
+    """O gun satilan sahlep bardagi. Soguk arttikca artar, 16C ustu ~0.
+
+    En soguk gunde (~4C) ortalama ~55 bardak; hafta sonu biraz daha, yagmurlu
+    soguk gunde sicak icecek biraz daha cok gider. Yazin sahlep satilmaz.
+    """
+    taban = _kirp((16.0 - sicaklik) / (16.0 - 4.0), 0.0, 1.0)
+    if taban <= 0:
+        return 0
+    bardak = 55.0 * taban
+    bardak *= 1.0 + 0.5 * (HAFTA[weekday] - 1.0)     # hafta sonu ~1.5 kat
+    if yagis >= 1:
+        bardak *= 1.15
+    bardak *= random.gauss(1.0, 0.14)
+    return max(0, int(round(bardak)))
+
+
+def gunun_cesitleri(cesitler, kis):
+    """O gunun aktif cesitleri ve (o gune gore) normalize edilmis paylari.
+
+    Kis gunlerinde yalnizca KIS_CESITLERI cirpilir; paylar bu altkume icinde
+    yeniden normalize edilir ki toplam yine 1 olsun. Yaz gunlerinde tam liste.
+    """
+    if kis:
+        alt = [c for c in cesitler if c["ad"] in KIS_CESITLERI]
+    else:
+        alt = list(cesitler)
+    toplam = sum(c["pay"] for c in alt) or 1.0
+    return [dict(c, pay=c["pay"] / toplam) for c in alt]
 
 
 def ozel_carpan(baglanti, tarih):
@@ -247,13 +338,11 @@ def gunun_talebi(baglanti, tarih, gun_no, sicaklik, yagis):
     """O gun dukkandan cikacak toplam dondurma, kilo olarak.
 
     Cikis noktasi dukkanin kendi olcusu: yaz ortasinda sicak, normal bir hafta
-    ici gunu 30 kg, yogun bir gun (hafta sonu) 60 kg. Geri kalani bunun
-    uzerine binen carpanlar.
+    ici gunu 30 kg, yogun bir gun (hafta sonu) 60 kg. Mevsim carpani artik
+    takvimden degil o gunun sicakligindan geliyor (dondurma_mevsim); kisin
+    hacim dogal olarak ucte bire kadar iner.
     """
-    kg = GUNLUK_KG * mevsim_carpani(gun_no) * HAFTA[tarih.weekday()]
-    # Sicaklik etkisi bilerek yumusak: sezon basi ile yaz ortasi arasinda buyuk
-    # fark olmadigi soylendi, sert bir sicaklik egrisi bunu bozardi.
-    kg *= max(0.88, min(1.12, 1 + 0.014 * (sicaklik - 27.0)))
+    kg = GUNLUK_KG * dondurma_mevsim(sicaklik) * HAFTA[tarih.weekday()]
     # "Yagmurlu gunde ucte bir duser" - saganakta biraz daha fazla.
     if yagis >= 4:
         kg *= 0.60
@@ -289,20 +378,37 @@ def ambalaj_adetleri(servis_kg):
 def alim_yap(baglanti, tarih, kalem_id, miktar, tedarikci, pesin_olasiligi, gun_no):
     """Alis fiyati sezon basindaki fiyattan yavas yavas artar (yigilmadan)."""
     taban = TABAN_FIYAT[kalem_id]
-    fiyat = taban * (1 + 0.0016 * gun_no) * random.uniform(0.985, 1.02)
+    # Gunluk ~%0,11 artis: ocaktan eylule kabaca %28 (2026 enflasyonuna yakin).
+    fiyat = taban * (1 + 0.0011 * gun_no) * random.uniform(0.985, 1.02)
     tutar = round(miktar * fiyat, 2)
     odeme = "pesin" if random.random() < pesin_olasiligi else "veresiye"
     hesap.alim_ekle(baglanti, tarih, kalem_id, miktar, tutar, odeme, tedarikci)
 
 
 def alimlari_kontrol_et(baglanti, tarih, gun_no, cesitler, gunluk_kg,
-                        gunluk_ihtiyac):
+                        gunluk_ihtiyac, sahlep_bardak=0):
     stok = hesap.stoklar(baglanti)
 
     gunluk_sut = gunluk_kg * 0.85           # kazanlarin ortalama sut orani
     if stok.get(SUT, 0) < gunluk_sut * 2.5:
         alim_yap(baglanti, tarih, SUT, math.ceil(gunluk_sut * 6 / 20) * 20,
                  TEDARIKCILER[SUT], 0.25, gun_no)
+
+    # Kis icecegi sahlep bardaginin malzemeleri: satiliyorsa ~15 gunluk tut.
+    if sahlep_bardak > 0:
+        for kalem_id, gunluk, tedarikci, koli_bazli in (
+            (HAZIR_SAHLEP, sahlep_bardak * 0.2, "Karadeniz Gıda", False),
+            (KARTON_BARDAK, sahlep_bardak * 1.0, AMBALAJCI, True),
+            (TARCIN, sahlep_bardak * 0.0005, "Karadeniz Gıda", False),
+        ):
+            if gunluk <= 0 or stok.get(kalem_id, 0) >= gunluk * 5:
+                continue
+            if koli_bazli:
+                koli = hesap.kalem(baglanti, kalem_id)["koli_adet"] or 1
+                miktar = max(koli, math.ceil(gunluk * 15 / koli) * koli)
+            else:
+                miktar = max(0.5, round(gunluk * 15, 2))
+            alim_yap(baglanti, tarih, kalem_id, miktar, tedarikci, 0.4, gun_no)
     if stok.get(SEKER, 0) < 30:
         alim_yap(baglanti, tarih, SEKER, 100, TEDARIKCILER[SEKER], 0.5, gun_no)
     if stok.get(SAHLEP, 0) < 2.5:
@@ -355,13 +461,15 @@ def _koli_bol(baglanti, kalem_id, kalan):
     return 0, round(kalan, 3)
 
 
-def gun_sonu(baglanti, tarih, cesitler, gunluk_kg, ambalaj, pet_su):
+def gun_sonu(baglanti, tarih, cesitler, gunluk_kg, ambalaj, pet_su, sahlep_bardak=0):
     """Gun sonu sayimi: rafta kalan ambalaj ve her kazanda kalan kilo.
 
     Ne satildigini program aradaki farktan buluyor. Dondurma satilan kalem
     oldugu icin tuketimi dogrudan ciroya doner (1.000 TL/kg); kulah ve kaplar
     ambalaj oldugu icin tuketimleri 'Sarf' yazilip maliyetleri gunun
     satislarina dagitilir. Musteriden ambalaj icin ayrica para alinmiyor.
+    Sahlep bardagi (varsa) takip disi, dogrudan (elle) satis olarak islenir;
+    recetesi (hazir sahlep + karton bardak + tarcin) satista stoktan duser.
     """
     stok = hesap.stoklar(baglanti)
     kalanlar, giden = {}, {}
@@ -401,7 +509,10 @@ def gun_sonu(baglanti, tarih, cesitler, gunluk_kg, ambalaj, pet_su):
     if stok.get(MENDIL, 0) > 1000 and random.random() < kap_adedi * 0.9 / 1000:
         bitenler.append(MENDIL)
 
-    hesap.sayim_kaydet(baglanti, tarih, kalanlar, None, bitenler)
+    elle = {SAHLEP_BARDAK: sahlep_bardak} if sahlep_bardak > 0 else None
+    hesap.sayim_kaydet(baglanti, tarih, kalanlar, elle, bitenler)
+    if sahlep_bardak > 0:
+        giden[SAHLEP_BARDAK] = sahlep_bardak
     return giden
 
 
@@ -415,11 +526,11 @@ def gun_sonu(baglanti, tarih, cesitler, gunluk_kg, ambalaj, pet_su):
 CALISANLAR = [
     # (ad, gorev, telefon, net maas, SGK+vergi, ise giris, ayrilis, not)
     ("Metin Aydın", "Dondurma ustası", "0532 418 77 21",
-     45000, 15300, "2026-05-15", "", "Kazanları o çekiyor, sabah 6'da geliyor"),
+     45000, 15300, "2026-01-01", "", "Kazanları o çekiyor, sabah 6'da geliyor"),
     ("Serkan Duran", "Tezgâhtar", "0537 260 14 08",
-     28100, 12150, "2026-05-15", "", ""),
+     28100, 12150, "2026-01-01", "", "Yıl boyu; kışın sahlep tezgâhına da bakıyor"),
     ("Elif Korkmaz", "Tezgâhtar", "0505 733 96 42",
-     28100, 12150, "2026-06-01", "", "Sezonluk — okul açılınca ayrılacak"),
+     28100, 12150, "2026-06-01", "", "Sezonluk — yaz için alındı"),
 ]
 
 
@@ -451,16 +562,24 @@ def giderleri_yaz(baglanti, tarih, gun_no, aylik_ciro):
     yakiyor. POS komisyonu ciroya bagli oldugu icin ayni gun hesaplaniyor.
     """
     gun, tarih_metni = tarih.day, tarih.isoformat()
-    if gun == 1 and tarih.month > 5:
+    if gun == 1:
+        # Kira tum yil boyunca; yil icinde hafif artar.
         hesap.gider_ekle(baglanti, tarih_metni, "Dükkân kirası",
-                         32000 + 1500 * (tarih.month - 6))
+                         30000 + 1200 * (tarih.month - 1))
     # Maas: kadro calisanlar tablosundan okunur, herkes icin ayri satir duser.
-    if gun == 5 and tarih.month > 5:
+    if gun == 5:
         hesap.maas_yaz(baglanti, tarih_metni)
     if gun == 20:
         # Dondurucular yazin gece gunduz calisiyor; agustos faturasi en agiri.
+        # Kisin yuk dusuyor ama dolaplar yine de calisiyor.
+        if tarih.month in (6, 7, 8):
+            elektrik = random.uniform(17000, 27000)
+        elif tarih.month in (5, 9):
+            elektrik = random.uniform(13000, 20000)
+        else:
+            elektrik = random.uniform(8000, 15000)
         hesap.gider_ekle(baglanti, tarih_metni, "Elektrik faturası",
-                         round(random.uniform(17000, 27000), -2))
+                         round(elektrik, -2))
         hesap.gider_ekle(baglanti, tarih_metni, "Su faturası",
                          round(random.uniform(1100, 2000), -1))
     if gun == 10:
@@ -473,7 +592,7 @@ def giderleri_yaz(baglanti, tarih, gun_no, aylik_ciro):
             hesap.gider_ekle(baglanti, tarih_metni, "Kredi kartı / POS komisyonu",
                              round(komisyon, -1))
     # Gecici vergi ve stopaj ucer aylik donemlerde odeniyor.
-    if gun == 17 and tarih.month in (5, 8):
+    if gun == 17 and tarih.month in (2, 5, 8):
         hesap.gider_ekle(baglanti, tarih_metni, "Vergi ve resmî ödemeler",
                          round(random.uniform(48000, 72000), -2))
     if tarih.weekday() == 0:
@@ -500,17 +619,33 @@ def odemeleri_yap(baglanti, tarih):
 
 
 def bankaya_yatir(baglanti, tarih):
-    """Kasada biriken nakit bankaya gider; kar hesabini etkilemez."""
-    if tarih.weekday() != 6:
-        return
+    """Kasa ile banka arasinda iki yonlu transfer; kasayi makul bir bantta tutar.
+
+    Kasa CEIL'i asarsa fazlasi bankaya yatirilir; FLOOR'un altina duserse (maas
+    gunu + ilkbahar aroma tazelemesi gibi buyuk cikis gunlerinde) bankadaki
+    birikimden geri cekilir. Boylece kasa ne gereksiz siser ne de eksiye duser.
+    Iki hesap arasi transfer oldugu icin kar/zarar hesabini etkilemez.
+    """
+    FLOOR, CEIL, HEDEF = 250000.0, 600000.0, 400000.0
     nakit = hesap.kasa(baglanti)
-    if nakit < 90000:
+    # Bankadaki birikim: 'banka' hareketlerinin toplaminin tersi (yatirma eksi,
+    # cekme arti yazilir; dolayisiyla birikim = -toplam).
+    banka = -(baglanti.execute(
+        "SELECT COALESCE(SUM(tutar), 0) FROM kasa_hareketleri WHERE kaynak_tur = 'banka'"
+    ).fetchone()[0])
+
+    if nakit > CEIL:
+        delta, aciklama = -round(nakit - HEDEF, -3), "Bankaya yatırıldı"
+    elif nakit < FLOOR and banka > 0:
+        delta, aciklama = round(min(banka, HEDEF - nakit), -3), "Bankadan çekildi"
+    else:
         return
-    tutar = round(nakit - 60000, -3)
+    if abs(delta) < 1:
+        return
     baglanti.execute(
         "INSERT INTO kasa_hareketleri (tarih, tutar, aciklama, kaynak_tur)"
         " VALUES (?, ?, ?, 'banka')",
-        (tarih.isoformat(), -tutar, "Bankaya yatırıldı"),
+        (tarih.isoformat(), delta, aciklama),
     )
     baglanti.commit()
 
@@ -527,6 +662,32 @@ def eskiyi_temizle(baglanti):
     """Onceki sezonu siler; betik ikinci kez calisinca ustune yigilmasin."""
     for tablo in TEMIZLENECEK:
         baglanti.execute(f"DELETE FROM {tablo}")
+    baglanti.commit()
+
+
+def taban_fiyatlari_sabitle(baglanti):
+    """Alis fiyatlarinin KANONIK tabanini saklar ve her kosuda geri yukler.
+
+    Neden gerekli: alim_ekle her alimda kalemin birim_fiyat'ini son alis fiyatina
+    gunceller. Betik de enflasyon tabanini (TABAN_FIYAT) bu birim_fiyat'tan okur.
+    Dolayisiyla betik ikinci kez calisinca taban, bir onceki sezonun sismis
+    fiyatindan baslar ve her kosuda ustune biner - COGS katlanarak sisirdi.
+    Cozum: ilk (temiz) kosuda birim_fiyatlar bir kez saklanir; sonraki her kosu
+    once bu tabandan geri yukler. Boylece betik kac kez calisirsa calissin ayni
+    sonucu verir (idempotent).
+    """
+    baglanti.execute(
+        "CREATE TABLE IF NOT EXISTS sim_taban_fiyat ("
+        " kalem_id INTEGER PRIMARY KEY, fiyat REAL)")
+    if baglanti.execute("SELECT COUNT(*) FROM sim_taban_fiyat").fetchone()[0]:
+        baglanti.execute(
+            "UPDATE kalemler SET birim_fiyat = ("
+            " SELECT fiyat FROM sim_taban_fiyat WHERE kalem_id = kalemler.id)"
+            " WHERE id IN (SELECT kalem_id FROM sim_taban_fiyat)")
+    else:
+        baglanti.execute(
+            "INSERT INTO sim_taban_fiyat (kalem_id, fiyat)"
+            " SELECT id, birim_fiyat FROM kalemler WHERE birim_fiyat > 0")
     baglanti.commit()
 
 
@@ -555,9 +716,24 @@ def yapiyi_kur(baglanti):
             baglanti.execute("DELETE FROM receteler WHERE id = ?", (recete["id"],))
 
     # Her kazan gun sonunda ayri sayiliyor; cesitler sayim ekranina cikmali.
+    # Fiyat 1 Temmuz zammindan ONCE: guncel fiyatin ONCE_FIYAT_ORANI kati.
     baglanti.execute(
         "UPDATE kalemler SET sayim_tarzi = 'say', fiyat = ?"
-        " WHERE uretilir = 1 AND satilir = 1 AND aktif = 1", (KILO_FIYATI,))
+        " WHERE uretilir = 1 AND satilir = 1 AND aktif = 1",
+        (round(KILO_FIYATI * ONCE_FIYAT_ORANI, 2),))
+
+    # Kis icecegi sahlep (bardak) ve recetesinin malzemeleri acilir. Hazir
+    # sahlep alinabilir yapilir ve alis fiyati verilir; bardak+tarcin zaten
+    # alinabilir. Bardak dogrudan (elle) satilir, stogu tutulmaz.
+    baglanti.execute(
+        "UPDATE kalemler SET aktif = 1 WHERE id IN (?, ?, ?, ?)",
+        (TARCIN, KARTON_BARDAK, HAZIR_SAHLEP, SAHLEP_BARDAK))
+    baglanti.execute(
+        "UPDATE kalemler SET alinir = 1, birim_fiyat = ? WHERE id = ?",
+        (HAZIR_SAHLEP_FIYAT, HAZIR_SAHLEP))
+    baglanti.execute(
+        "UPDATE kalemler SET fiyat = ? WHERE id = ?",
+        (round(SAHLEP_BARDAK_FIYAT * ONCE_FIYAT_ORANI, 2), SAHLEP_BARDAK))
 
     # Aromalara gecerken geride kalan eski 'Dondurma' kalemi artik hicbir
     # receteye bagli degil; goze gorunmesin diye kapali kaliyor.
@@ -565,17 +741,37 @@ def yapiyi_kur(baglanti):
     baglanti.commit()
 
 
+def zammi_uygula(baglanti):
+    """1 Temmuz zammi: satis fiyatlari guncel (final) seviyeye cekilir.
+
+    Zamdan onceki satislar daha ucuz fiyatla yazildi; bu gunden sonra guncel
+    fiyat gecerli. urun_paylari/gecmis_gunler GUNCEL fiyatla 'gercek talep'
+    hesapladigi icin bu zam nominal ciroyu sicratir ama talebi degil - tahmin
+    ekranindaki deflasyon tam da bunu ayikliyor."""
+    baglanti.execute(
+        "UPDATE kalemler SET fiyat = ?"
+        " WHERE uretilir = 1 AND satilir = 1 AND aktif = 1", (KILO_FIYATI,))
+    baglanti.execute("UPDATE kalemler SET fiyat = ? WHERE id = ?",
+                     (SAHLEP_BARDAK_FIYAT, SAHLEP_BARDAK))
+    baglanti.commit()
+
+
 def hazirlik(baglanti, cesitler):
-    for kalem_id in list(AMBALAJ_KURALI) + [SUT, SEKER, SAHLEP, VANILYA]:
+    for kalem_id in (list(AMBALAJ_KURALI)
+                     + [SUT, SEKER, SAHLEP, VANILYA,
+                        HAZIR_SAHLEP, KARTON_BARDAK, TARCIN]):
         TABAN_FIYAT[kalem_id] = hesap.kalem(baglanti, kalem_id)["birim_fiyat"]
     for cesit in cesitler:
         if cesit["aroma"]:
             TABAN_FIYAT[cesit["aroma"]] = hesap.kalem(baglanti, cesit["aroma"])["birim_fiyat"]
 
+    # Tum yilin isletme sermayesi: kis sakin gecerken bile kira+maas doner ve
+    # ilkbaharda butun cesitlerin aromasi birden tazelenir; acilis kasasi buna
+    # gore (yaz-only surumdeki 250k degil) daha genis.
     baglanti.execute(
         "INSERT INTO kasa_hareketleri (tarih, tutar, aciklama, kaynak_tur)"
         " VALUES (?, ?, ?, 'devir')",
-        (BASLANGIC.isoformat(), 250000.0, "Sezon açılış kasası"),
+        (BASLANGIC.isoformat(), 450000.0, "Sezon açılış kasası"),
     )
     baglanti.commit()
 
@@ -604,6 +800,7 @@ def main():
 
     baglanti = veritabani.baglan(DUKKAN)
     eskiyi_temizle(baglanti)
+    taban_fiyatlari_sabitle(baglanti)   # re-run'larda fiyat sismesini onler
     yapiyi_kur(baglanti)
     calisanlari_kur(baglanti)
     gunluk_hava = havayi_yaz(baglanti, havayi_getir())
@@ -611,11 +808,22 @@ def main():
     hazirlik(baglanti, cesitler)
     print("çeşit sayısı:", len(cesitler))
 
-    tarih, gun_no = BASLANGIC, 0
+    rejim_kis = menu_rejimi(gunluk_hava, BASLANGIC, BITIS)
+
+    tarih, gun_no, zam_yapildi = BASLANGIC, 0, False
     while tarih <= BITIS:
         anahtar = tarih.isoformat()
-        sicaklik, yagis = gunluk_hava.get(anahtar, (24.0, 0.0))
+        # 1 Temmuz zammi: o gun gelince guncel fiyatlara gecilir (bir kez).
+        if not zam_yapildi and tarih >= ZAM_TARIHI:
+            zammi_uygula(baglanti)
+            zam_yapildi = True
+        sicaklik, yagis = gunluk_hava.get(anahtar, (15.0, 0.0))
+
+        kis = rejim_kis.get(anahtar, False)               # surekli menu rejimi
+        bugun_cesit = gunun_cesitleri(cesitler, kis)      # o gunun aktif cesitleri
         gunluk_kg = gunun_talebi(baglanti, tarih, gun_no, sicaklik, yagis)
+        # Sahlep yalnizca kis menusu acikken satilir (malzeme alimi da ona gore).
+        sahlep = sahlep_talebi(sicaklik, tarih.weekday(), yagis) if kis else 0
         # Kilonun bir kismi kap/kulaha girmeden dogrudan eve gidiyor.
         ambalaj = ambalaj_adetleri(gunluk_kg * (1 - KILO_PAYI))
         pet_su = int(round(sum(ambalaj.values()) * 0.09 * random.uniform(0.7, 1.3)))
@@ -628,9 +836,10 @@ def main():
         ihtiyac[PECETE] = 0.75
         ihtiyac[MENDIL] = sum(a for k, a in ambalaj.items() if k != KULAH) * 0.9
 
-        alimlari_kontrol_et(baglanti, anahtar, gun_no, cesitler, gunluk_kg, ihtiyac)
-        uretim_yap(baglanti, anahtar, cesitler, gunluk_kg)
-        gun_sonu(baglanti, anahtar, cesitler, gunluk_kg, ambalaj, pet_su)
+        alimlari_kontrol_et(baglanti, anahtar, gun_no, bugun_cesit, gunluk_kg,
+                            ihtiyac, sahlep)
+        uretim_yap(baglanti, anahtar, bugun_cesit, gunluk_kg)
+        gun_sonu(baglanti, anahtar, bugun_cesit, gunluk_kg, ambalaj, pet_su, sahlep)
         giderleri_yaz(baglanti, tarih, gun_no, _ayin_cirosu(baglanti, tarih))
         odemeleri_yap(baglanti, tarih)
         bankaya_yatir(baglanti, tarih)
