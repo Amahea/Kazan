@@ -1275,6 +1275,92 @@ SOZLUK = {
         "spread away. It may be a counting/production error or an unusual loss; "
         "worth checking.",
 
+    # --- yonetici paneli ---
+    "Yönetici": "Admin",
+    "Yönetici paneli": "Admin panel",
+    "Dükkâna dön": "Back to shop",
+    "Pano": "Dashboard",
+    "Kullanıcılar": "Users",
+    "Çapraz Özet": "Cross-shop",
+    "Model Sağlığı": "Model health",
+    "Araştırma Verisi": "Research data",
+    "Bu alan yöneticilere özel": "This area is for admins only",
+    "Bu sayfayı görme yetkin yok.": "You don't have permission to view this page.",
+    "Veri giriş uyarıları": "Data-entry alerts",
+    "Bir dükkân akşam gün sonu verisini (satış/sayım) girmeyi "
+    "bıraktığında burada görünür. {u} gün gecikme uyarı, {k} gün ve "
+    "üstü kritik sayılır.":
+        "A shop appears here when it stops entering end-of-day data (sales/count). "
+        "{u} days late counts as a warning, {k}+ days as critical.",
+    "Dükkân": "Shop",
+    "Durum": "Status",
+    "Son veri": "Last data",
+    "Son giriş": "Last login",
+    "Kullanıcı": "User",
+    "Bütün dükkânlar güncel. 👍": "All shops are up to date. 👍",
+    "Bütün dükkânlar": "All shops",
+    "güncel": "current",
+    "gecikti": "late",
+    "sessiz": "silent",
+    "veri yok": "no data",
+    " · {n} gün": " · {n} days",
+    "hiç": "never",
+    "yönetici": "admin",
+    "sahip": "owner",
+    "sahip yap": "make owner",
+    "yönetici yap": "make admin",
+    "yeni şifre": "new password",
+    "sıfırla": "reset",
+    "Rol": "Role",
+    "Şifre": "Password",
+    "Yeni dükkân + sahibi": "New shop + owner",
+    "Yeni bir dükkân ve o dükkânın ilk kullanıcısını açar. "
+    "Dükkânın boş veri dosyası kendiliğinden kurulur.":
+        "Creates a new shop and its first user. The shop's empty data file is set "
+        "up automatically.",
+    "Dükkân adı": "Shop name",
+    "Kullanıcı adı": "Username",
+    "Sahibin adı (isteğe bağlı)": "Owner's name (optional)",
+    "Dükkânı aç": "Create shop",
+    "Şifre sıfırlandı.": "Password reset.",
+    "Rol güncellendi.": "Role updated.",
+    "Son yöneticinin rolü düşürülemez.": "Can't demote the last admin.",
+    "Kullanıcı bulunamadı.": "User not found.",
+    "{ad} açıldı.": "{ad} created.",
+    "Çapraz dükkân özeti": "Cross-shop summary",
+    "Tüm zamanların toplamı. Son sütun yalnızca son 30 günün cirosu "
+    "(hangi dükkân hâlâ canlı). Fire, kâra yansımayan kayıp.":
+        "All-time totals. The last column is revenue of the last 30 days only "
+        "(which shop is still active). Waste is loss not reflected in profit.",
+    "Gün": "Days",
+    "Brüt kâr": "Gross profit",
+    "Gider": "Expenses",
+    "Net": "Net",
+    "Son 30g": "Last 30d",
+    "Model ve tahmin sağlığı": "Model & forecast health",
+    "MAPE, modelin ortalama yüzde hatası (kaba kıyas; kesin kıyas "
+    "dükkânın Tahmin günlüğü sayfasında). Anomali: son 14 günde "
+    "istatistiksel olarak sıra dışı fire sayısı.":
+        "MAPE is the model's average percent error (rough; the exact comparison is "
+        "on the shop's Forecast-log page). Anomaly: number of statistically unusual "
+        "waste events in the last 14 days.",
+    "Veri günü": "Data days",
+    "Kullandığı": "Uses",
+    "Anomali (14g)": "Anomalies (14d)",
+    "çalışıyor": "running",
+    "yetersiz (+{n} gün)": "insufficient (+{n} days)",
+    "yalnız ortalama": "mean only",
+    "günler": "weekdays",
+    "özel günler": "special days",
+    "Araştırma verisi (CSV)": "Research data (CSV)",
+    "Seçili dükkânların günlük cirosunu, satış adedini ve o günün "
+    "havasını (sıcaklık, yağış) CSV olarak indirir. Noktalı virgülle "
+    "ayrılmış; Excel ve istatistik programları doğrudan açar.":
+        "Downloads the selected shops' daily revenue, sales count and that day's "
+        "weather (temperature, rain) as CSV. Semicolon-separated; Excel and stats "
+        "tools open it directly.",
+    "CSV indir": "Download CSV",
+
     # --- durum_metni (capraz dogrulamali secim) ---
     "{gun} günlük satış geçmişine bakıyor; hangi bileşeni kullanacağına çapraz "
     "doğrulamayla kendisi karar verdi":

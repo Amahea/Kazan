@@ -33,6 +33,7 @@ import tahmin as tahmin_modulu
 import takvim
 import tanitim
 import veritabani
+import yonetici as yonetici_modulu
 from veritabani import ayar, ayar_yaz, sayi
 
 # Bulut servisleri dinlenecek portu PORT degiskeniyle bildirir. Bu degiskenin
@@ -376,6 +377,18 @@ button.mini { background:none; color:#33475b; padding:4px 8px; font-weight:400; 
 .sablon { display:block; border:2px solid #e6ebf0; border-radius:10px; padding:14px;
           margin-bottom:10px; text-decoration:none; color:inherit; }
 .sablon b { display:block; font-size:17px; margin-bottom:4px; color:#0f4c75; }
+/* Yonetici paneli: durum rozetleri ve ust koseden panele giris baglantisi. */
+.durum { display:inline-block; font-size:12px; font-weight:600; padding:2px 9px;
+         border-radius:20px; white-space:nowrap; }
+.durum.iyi     { background:#e6f3ec; color:#1b7f4f; }
+.durum.uyari   { background:#fdf0d8; color:#8a5a00; }
+.durum.kritik  { background:#fdecea; color:#b5320f; }
+.durum.yok     { background:#eceff2; color:#64748b; }
+.yon-rozet { display:inline-block; min-width:18px; text-align:center; font-size:12px;
+             font-weight:700; padding:1px 7px; border-radius:20px;
+             background:#b5320f; color:#fff; margin-left:6px; }
+.yon-giris { font-size:14px; color:#0f4c75; font-weight:600; text-decoration:none;
+             border:1px solid #cde0f0; border-radius:8px; padding:6px 12px; }
 """
 
 
@@ -466,6 +479,9 @@ def sayfa(baglanti, yol, baslik, icerik, mesaj=""):
         mesaj_html = (f'<div class="mesaj{" hata" if hata else ""}">'
                       f'{kacir(mesaj[1:] if hata else mesaj)}</div>')
     dukkan = kacir(ayar(baglanti, "dukkan_adi", "Dükkanım"))
+    # Yonetici rolundeki kullaniciya ust kosede panele giris baglantisi.
+    yon_giris = (f'<a class="yon-giris" href="/yonetici">🛡 {C("Yönetici")}</a>'
+                 if hesaplar.yonetici_mi(getattr(_istek, "kullanici", None)) else "")
 
     # Ana menude tahmin sutunu solda durur. Icerik HTML'de once yazilir ki
     # telefonda once gunun kartlari, altinda tahmin gorunsun.
@@ -479,7 +495,7 @@ def sayfa(baglanti, yol, baslik, icerik, mesaj=""):
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{kacir(C(baslik))} - {dukkan}</title><style>{STIL}</style></head>
 <body><header style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
-<h1>{dukkan}</h1>{dil_secici(yol)}</header><nav>{menu}</nav>
+<h1>{dukkan}</h1><div style="display:flex;gap:10px;align-items:center">{yon_giris}{dil_secici(yol)}</div></header><nav>{menu}</nav>
 <main>{mesaj_html}{govde}</main>{SIFRE_BETIGI}</body></html>"""
 
 
@@ -3617,6 +3633,248 @@ def islem_ayarlar(baglanti, veri):
     return "/ayarlar", C("Kaydedildi.")
 
 
+# ================================================================ yönetici paneli
+# Butun dukkanlari capraz goren, veri-giris uyarilarini toplayan panel. Veri
+# tarafi yonetici.py'de; burada yalnizca ekran cizilir. Tek dukkana bagli
+# olmadigi icin kendi cercevesini (yonetici_sayfa) ve kendi menusunu kullanir.
+
+YONETICI_MENU = [
+    ("/yonetici", "Pano", "🚦"),
+    ("/yonetici-kullanicilar", "Kullanıcılar", "👤"),
+    ("/yonetici-ozet", "Çapraz Özet", "📊"),
+    ("/yonetici-model", "Model Sağlığı", "🎯"),
+    ("/yonetici-veri", "Araştırma Verisi", "📁"),
+]
+
+DURUM_ETIKET = {"iyi": "güncel", "uyari": "gecikti", "kritik": "sessiz",
+                "veri_yok": "veri yok"}
+
+
+def _durum_rozeti(durum, gun_gecti):
+    etiket = C(DURUM_ETIKET.get(durum, durum))
+    if gun_gecti is not None and durum != "iyi":
+        etiket += C(" · {n} gün", n=gun_gecti)
+    sinif = {"iyi": "iyi", "uyari": "uyari", "kritik": "kritik"}.get(durum, "yok")
+    return f'<span class="durum {sinif}">{etiket}</span>'
+
+
+def yonetici_sayfa(aktif_yol, baslik, icerik, rozet=0, mesaj=""):
+    """Yonetici panelinin cercevesi: kendi ust seridi + alt menusu."""
+    menu = ""
+    for adres, ad, simge in YONETICI_MENU:
+        r = (f'<span class="yon-rozet">{rozet}</span>'
+             if adres == "/yonetici" and rozet else "")
+        menu += (f'<a href="{adres}" class="{"aktif" if aktif_yol == adres else ""}">'
+                 f'<span class="simge">{simge}</span>{C(ad)}{r}</a>')
+    menu += (f'<a href="/"><span class="simge">↩</span>{C("Dükkâna dön")}</a>'
+             '<form method="post" action="/cikis" style="display:contents">'
+             f'<button><span class="simge">🚪</span>{C("Çıkış")}</button></form>')
+    mesaj_html = ""
+    if mesaj:
+        hata = mesaj.startswith("!")
+        mesaj_html = (f'<div class="mesaj{" hata" if hata else ""}">'
+                      f'{kacir(mesaj[1:] if hata else mesaj)}</div>')
+    return f"""<!DOCTYPE html>
+<html lang="{diller.simdiki()}"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{kacir(C(baslik))} - {C("Yönetici")}</title><style>{STIL}</style></head>
+<body><header style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+<h1>🛡 {C("Yönetici paneli")}</h1>{dil_secici(aktif_yol)}</header>
+<nav>{menu}</nav><main>{mesaj_html}{icerik}</main></body></html>"""
+
+
+def _yon_tarih(metin):
+    return kacir(metin[:16]) if metin else f'<span class="bos">{C("hiç")}</span>'
+
+
+def yonetici_pano(defter):
+    """Giris ekrani: veri-giris uyarilari + butun dukkanlarin durumu."""
+    durumlar = yonetici_modulu.dukkan_durumlari(defter)
+    dikkat = [d for d in durumlar if d["durum"] != "iyi"]
+
+    giris = C("Bir dükkân akşam gün sonu verisini (satış/sayım) girmeyi "
+              "bıraktığında burada görünür. {u} gün gecikme uyarı, {k} gün ve "
+              "üstü kritik sayılır.", u=yonetici_modulu.UYARI_GUN,
+              k=yonetici_modulu.KRITIK_GUN)
+    if dikkat:
+        satir = ""
+        for d in sorted(dikkat, key=lambda x: -(x["gun_gecti"] or 9999)):
+            kisi = ", ".join(kacir(k["eposta"]) for k in d["kullanicilar"]) or "—"
+            satir += (f"<tr><td><b>{kacir(d['ad'])}</b></td>"
+                      f"<td>{_durum_rozeti(d['durum'], d['gun_gecti'])}</td>"
+                      f"<td class='sag'>{_yon_tarih(d['son_veri'])}</td>"
+                      f"<td>{kisi}</td></tr>")
+        uyari_govde = (f"<table><tr><th>{C('Dükkân')}</th><th>{C('Durum')}</th>"
+                       f"<th class='sag'>{C('Son veri')}</th><th>{C('Kullanıcı')}</th>"
+                       f"</tr>{satir}</table>")
+    else:
+        uyari_govde = f'<p class="bos">{C("Bütün dükkânlar güncel. 👍")}</p>'
+
+    tum = ""
+    for d in durumlar:
+        kisi = ", ".join(kacir(k["eposta"]) for k in d["kullanicilar"]) or "—"
+        tum += (f"<tr><td><b>{kacir(d['ad'])}</b> "
+                f"<span class='bos'>#{d['id']}</span></td>"
+                f"<td>{_durum_rozeti(d['durum'], d['gun_gecti'])}</td>"
+                f"<td class='sag'>{_yon_tarih(d['son_veri'])}</td>"
+                f"<td class='sag'>{_yon_tarih(d['son_giris'])}</td>"
+                f"<td>{kisi}</td></tr>")
+    return (f"""
+<div class="kart"><h2>{C("Veri giriş uyarıları")}</h2>
+<p class="bos">{giris}</p>{uyari_govde}</div>
+<div class="kart"><h2>{C("Bütün dükkânlar")}</h2>
+<table><tr><th>{C('Dükkân')}</th><th>{C('Durum')}</th>
+<th class='sag'>{C('Son veri')}</th><th class='sag'>{C('Son giriş')}</th>
+<th>{C('Kullanıcı')}</th></tr>{tum}</table></div>""")
+
+
+def yonetici_kullanicilar(defter, mesaj=""):
+    """Kullanici/dukkan yonetimi: sifre sifirla, rol, yeni dukkan ekle."""
+    satir = ""
+    for k in hesaplar.tum_kullanicilar(defter):
+        yon = k["rol"] == hesaplar.ROL_YONETICI
+        rol_rozet = (f'<span class="durum iyi">{C("yönetici")}</span>' if yon
+                     else f'<span class="rozet">{C("sahip")}</span>')
+        hedef_rol = hesaplar.ROL_SAHIP if yon else hesaplar.ROL_YONETICI
+        rol_dugme = (
+            f'<form method="post" action="/yonetici-rol" style="display:inline">'
+            f'<input type="hidden" name="kullanici_id" value="{k["id"]}">'
+            f'<input type="hidden" name="rol" value="{hedef_rol}">'
+            f'<button class="ikincil">'
+            f'{C("sahip yap") if yon else C("yönetici yap")}</button></form>')
+        sifre_form = (
+            f'<form method="post" action="/yonetici-sifre" style="display:flex;gap:6px">'
+            f'<input type="hidden" name="kullanici_id" value="{k["id"]}">'
+            f'<input type="password" name="sifre" placeholder="{C("yeni şifre")}" '
+            f'style="width:120px" autocomplete="new-password">'
+            f'<button class="ikincil">{C("sıfırla")}</button></form>')
+        satir += (f"<tr><td><b>{kacir(k['eposta'])}</b>"
+                  f"<div class='bos' style='font-size:13px'>{kacir(k['ad'] or '')}</div></td>"
+                  f"<td>{kacir(k['dukkan_adi'])} <span class='bos'>#{k['dukkan_id']}</span></td>"
+                  f"<td>{rol_rozet}{rol_dugme}</td>"
+                  f"<td class='sag'>{_yon_tarih(k['son_giris'])}</td>"
+                  f"<td>{sifre_form}</td></tr>")
+    tablo = (f"<table><tr><th>{C('Kullanıcı')}</th><th>{C('Dükkân')}</th>"
+             f"<th>{C('Rol')}</th><th class='sag'>{C('Son giriş')}</th>"
+             f"<th>{C('Şifre')}</th></tr>{satir}</table>")
+
+    yeni = (f"""
+<div class="kart"><h2>{C("Yeni dükkân + sahibi")}</h2>
+<p class="bos">{C("Yeni bir dükkân ve o dükkânın ilk kullanıcısını açar. "
+                  "Dükkânın boş veri dosyası kendiliğinden kurulur.")}</p>
+<form method="post" action="/yonetici-dukkan-ekle" class="giris-liste" style="max-width:420px">
+<div class="oge"><label>{C("Dükkân adı")}</label>
+<input type="text" name="dukkan_adi" required></div>
+<div class="oge"><label>{C("Kullanıcı adı")}</label>
+<input type="text" name="eposta" required autocomplete="off"></div>
+<div class="oge"><label>{C("Sahibin adı (isteğe bağlı)")}</label>
+<input type="text" name="ad"></div>
+<div class="oge"><label>{C("Şifre (en az {n} karakter)", n=hesaplar.EN_KISA_SIFRE)}</label>
+<input type="password" name="sifre" required autocomplete="new-password"></div>
+<button>{C("Dükkânı aç")}</button></form></div>""")
+
+    return (f'<div class="kart"><h2>{C("Kullanıcılar")}</h2>{tablo}</div>{yeni}')
+
+
+def yonetici_ozet(defter):
+    """Butun dukkanlarin ciro/kar/fire ozeti tek tabloda."""
+    satirlar, toplam = yonetici_modulu.capraz_ozet(defter)
+    if not satirlar:
+        return f'<div class="kart"><h2>{C("Çapraz özet")}</h2>{grafik.bos()}</div>'
+    govde = ""
+    for r in satirlar:
+        govde += (f"<tr><td><b>{kacir(r['ad'])}</b></td>"
+                  f"<td class='sag'>{r['gun']}</td>"
+                  f"<td class='sag'>{para(r['ciro'])}</td>"
+                  f"<td class='sag'>{para(r['brut'])}</td>"
+                  f"<td class='sag'>{para(r['gider'])}</td>"
+                  f"<td class='sag'><b>{para(r['net'])}</b></td>"
+                  f"<td class='sag'>{para(r['fire'])}</td>"
+                  f"<td class='sag'>{para(r['ciro_son'])}</td></tr>")
+    govde += (f"<tr><th>{C('TOPLAM')}</th><th></th>"
+              f"<th class='sag'>{para(toplam['ciro'])}</th>"
+              f"<th class='sag'>{para(toplam['brut'])}</th>"
+              f"<th class='sag'>{para(toplam['gider'])}</th>"
+              f"<th class='sag'>{para(toplam['net'])}</th>"
+              f"<th class='sag'>{para(toplam['fire'])}</th>"
+              f"<th class='sag'>{para(toplam['ciro_son'])}</th></tr>")
+    aciklama = C("Tüm zamanların toplamı. Son sütun yalnızca son 30 günün cirosu "
+                 "(hangi dükkân hâlâ canlı). Fire, kâra yansımayan kayıp.")
+    return (f"""
+<div class="kart"><h2>{C("Çapraz dükkân özeti")}</h2>
+<p class="bos">{aciklama}</p>
+<table><tr><th>{C('Dükkân')}</th><th class='sag'>{C('Gün')}</th>
+<th class='sag'>{C('Ciro')}</th><th class='sag'>{C('Brüt kâr')}</th>
+<th class='sag'>{C('Gider')}</th><th class='sag'>{C('Net')}</th>
+<th class='sag'>{C('Fire')}</th><th class='sag'>{C('Son 30g')}</th></tr>{govde}</table></div>""")
+
+
+def _secim_metni(secim):
+    if not secim:
+        return "—"
+    parcalar = []
+    if secim.get("sicaklik"):
+        parcalar.append(C("sıcaklık"))
+    if secim.get("yagmur"):
+        parcalar.append(C("yağmur"))
+    g = secim.get("gun")
+    if g == "sonu":
+        parcalar.append(C("hafta sonu"))
+    elif g == "tam":
+        parcalar.append(C("günler"))
+    if secim.get("etiketler"):
+        parcalar.append(C("özel günler"))
+    return ", ".join(parcalar) or C("yalnız ortalama")
+
+
+def yonetici_model(defter):
+    """Her dukkanda tahmin modelinin durumu."""
+    satirlar = yonetici_modulu.model_sagligi(defter)
+    govde = ""
+    for m in satirlar:
+        if not m["yeterli"]:
+            durum = (f'<span class="durum yok">'
+                     + C("yetersiz (+{n} gün)", n=m.get("eksik_gun", 0)) + '</span>')
+            mape = secim = anom = "—"
+        else:
+            durum = f'<span class="durum iyi">{C("çalışıyor")}</span>'
+            mape = f"%{m['mape']:.0f}" if m["mape"] is not None else "—"
+            secim = kacir(_secim_metni(m["secim"]))
+            anom = (f'<span class="durum kritik">{m["anomali"]}</span>'
+                    if m["anomali"] else "0")
+        govde += (f"<tr><td><b>{kacir(m['ad'])}</b></td>"
+                  f"<td>{durum}</td><td class='sag'>{m['gun']}</td>"
+                  f"<td class='sag'>{mape}</td><td>{secim}</td>"
+                  f"<td class='sag'>{anom}</td></tr>")
+    aciklama = C("MAPE, modelin ortalama yüzde hatası (kaba kıyas; kesin kıyas "
+                 "dükkânın Tahmin günlüğü sayfasında). Anomali: son 14 günde "
+                 "istatistiksel olarak sıra dışı fire sayısı.")
+    return (f"""
+<div class="kart"><h2>{C("Model ve tahmin sağlığı")}</h2>
+<p class="bos">{aciklama}</p>
+<table><tr><th>{C('Dükkân')}</th><th>{C('Durum')}</th>
+<th class='sag'>{C('Veri günü')}</th><th class='sag'>{C('MAPE')}</th>
+<th>{C('Kullandığı')}</th><th class='sag'>{C('Anomali (14g)')}</th></tr>{govde}</table></div>""")
+
+
+def yonetici_veri(defter):
+    """TUBITAK icin gunluk ciro+hava verisini CSV indirme ekrani."""
+    kutular = ""
+    for d in defter.execute("SELECT id, ad FROM dukkanlar ORDER BY id"):
+        kutular += (f'<label style="display:block;margin:6px 0">'
+                    f'<input type="checkbox" name="dukkan" value="{d["id"]}" checked> '
+                    f'{kacir(d["ad"])} <span class="bos">#{d["id"]}</span></label>')
+    aciklama = C("Seçili dükkânların günlük cirosunu, satış adedini ve o günün "
+                 "havasını (sıcaklık, yağış) CSV olarak indirir. Noktalı virgülle "
+                 "ayrılmış; Excel ve istatistik programları doğrudan açar.")
+    return (f"""
+<div class="kart"><h2>{C("Araştırma verisi (CSV)")}</h2>
+<p class="bos">{aciklama}</p>
+<form method="get" action="/yonetici-veri-csv">
+{kutular}
+<div style="margin-top:14px"><button>{C("CSV indir")}</button></div></form></div>""")
+
+
 SAYFALAR = {
     "/": ("Ana Menü", sayfa_bugun),
     "/satis": ("Satış", sayfa_satis_merkezi),
@@ -3816,6 +4074,105 @@ class Sunucu(BaseHTTPRequestHandler):
             guvenlik.cerez_deger(self.headers.get("Cookie"), "dil"),
             self.headers.get("Accept-Language")))
 
+    # ------------------------------------------------------------ yonetici
+    def _gonder_csv(self, metin, dosya_adi):
+        """CSV dosyasini indirme olarak yollar. Bastaki BOM, Excel'in Turkce
+        karakterleri dogru acmasi icin."""
+        veri = ("﻿" + metin).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/csv; charset=utf-8")
+        self.send_header("Content-Disposition", f'attachment; filename="{dosya_adi}"')
+        self.send_header("Content-Length", str(len(veri)))
+        self.end_headers()
+        self.wfile.write(veri)
+
+    def _yetki_yok(self):
+        return (f"<!DOCTYPE html><html lang='{diller.simdiki()}'><head>"
+                f"<meta charset='utf-8'><title>Yetki yok</title><style>{STIL}</style>"
+                f"</head><body><main><div class='kart'><h2>{C('Bu alan yöneticilere özel')}</h2>"
+                f"<p class='bos'>{C('Bu sayfayı görme yetkin yok.')}</p>"
+                f"<p><a href='/'>{C('Ana sayfaya dön')}</a></p></div></main></body></html>")
+
+    def _yonetici_get(self, defter, parca, kisi):
+        """Yonetici panelinin GET sayfalari. Tek dukkana bagli degil; defteri
+        ve her dukkanin dosyasini birlikte okur (yonetici_modulu)."""
+        if not hesaplar.yonetici_mi(kisi):
+            self._gonder(self._yetki_yok(), 403)
+            return
+        _istek.kullanici = kisi
+        _istek.para = "TL"
+        if parca.path == "/yonetici-veri-csv":
+            idler = urllib.parse.parse_qs(parca.query).get("dukkan", [])
+            self._gonder_csv(yonetici_modulu.arastirma_csv(defter, idler),
+                             "arastirma-verisi.csv")
+            return
+        sayfalar = {
+            "/yonetici": ("Pano", yonetici_pano),
+            "/yonetici-kullanicilar": ("Kullanıcılar", yonetici_kullanicilar),
+            "/yonetici-ozet": ("Çapraz Özet", yonetici_ozet),
+            "/yonetici-model": ("Model Sağlığı", yonetici_model),
+            "/yonetici-veri": ("Araştırma Verisi", yonetici_veri),
+        }
+        bilgi = sayfalar.get(parca.path)
+        if not bilgi:
+            self._gonder("<h1>Sayfa bulunamadı</h1><a href='/yonetici'>Pano</a>", 404)
+            return
+        rozet = yonetici_modulu.uyari_sayisi(
+            yonetici_modulu.dukkan_durumlari(defter))
+        mesaj = urllib.parse.parse_qs(parca.query).get("m", [""])[0]
+        baslik, uretici = bilgi
+        self._gonder(yonetici_sayfa(parca.path, baslik, uretici(defter), rozet, mesaj))
+
+    def _yonetici_post(self, defter, parca, veri, kisi):
+        """Yonetici islemleri: sifre sifirla, rol degistir, yeni dukkan ac."""
+        if not hesaplar.yonetici_mi(kisi):
+            self._gonder(self._yetki_yok(), 403)
+            return
+
+        def d(ad):
+            return veri.get(ad, [""])[0]
+
+        geri = "/yonetici-kullanicilar"
+        if parca.path == "/yonetici-sifre":
+            try:
+                kid = int(d("kullanici_id"))
+            except ValueError:
+                self._yonlendir(geri, "!" + C("Kullanıcı bulunamadı."))
+                return
+            hata = hesaplar.sifre_sifirla(defter, kid, d("sifre"))
+            self._yonlendir(geri, ("!" + C(hata)) if hata else C("Şifre sıfırlandı."))
+            return
+        if parca.path == "/yonetici-rol":
+            try:
+                kid = int(d("kullanici_id"))
+            except ValueError:
+                self._yonlendir(geri, "!" + C("Kullanıcı bulunamadı."))
+                return
+            rol = d("rol")
+            if rol == hesaplar.ROL_SAHIP and hesaplar.yonetici_say(defter) <= 1:
+                self._yonlendir(geri, "!" + C("Son yöneticinin rolü düşürülemez."))
+                return
+            hesaplar.rol_yaz(defter, kid, rol)
+            self._yonlendir(geri, C("Rol güncellendi."))
+            return
+        if parca.path == "/yonetici-dukkan-ekle":
+            hata = hesaplar.kayit_denetle(defter, d("eposta"), d("sifre"),
+                                          None, d("dukkan_adi"))
+            if hata:
+                self._yonlendir(geri, "!" + C(hata))
+                return
+            _kid, dukkan_id = hesaplar.kayit_ol(
+                defter, d("dukkan_adi"), d("eposta"), d("ad"), d("sifre"))
+            yeni = veritabani.hazirla(dukkan_id)
+            try:
+                ayar_yaz(yeni, "dukkan_adi", d("dukkan_adi").strip())
+                yeni.commit()
+            finally:
+                yeni.close()
+            self._yonlendir(geri, C("{ad} açıldı.", ad=d("dukkan_adi")))
+            return
+        self._gonder("<h1>Bulunamadı</h1>", 404)
+
     def do_GET(self):
         parca = urllib.parse.urlparse(self.path)
         if parca.path == "/favicon.ico":
@@ -3863,6 +4220,10 @@ class Sunucu(BaseHTTPRequestHandler):
                 return
             if parca.path in ("/giris", "/kayit", "/tanitim"):
                 self._yonlendir("/")
+                return
+            # Yonetici paneli tek dukkana bagli degil; defter acikken islenir.
+            if parca.path.startswith("/yonetici"):
+                self._yonetici_get(defter, parca, kisi)
                 return
         except Exception as hata:
             self._hata_sayfasi(hata)
@@ -3948,6 +4309,9 @@ class Sunucu(BaseHTTPRequestHandler):
                 return
             if parca.path == "/sifre-kur":
                 self._sifre_islemi(defter, kisi, veri)
+                return
+            if parca.path.startswith("/yonetici"):
+                self._yonetici_post(defter, parca, veri, kisi)
                 return
         except Exception as hata:
             self._hata_sayfasi(hata)

@@ -40,6 +40,12 @@ ORTAM_EPOSTA = "yonetici"
 DONGU = 200_000          # pbkdf2 tur sayisi
 EN_KISA_SIFRE = 6
 
+# Roller. 'sahip' dukkani kuran/isleten kisi; yalnizca kendi dukkanini gorur.
+# 'yonetici' butun dukkanlari gorebilen ve kullanici/dukkan yonetebilen kisi
+# (bu bir TUBITAK calismasi; yoneticinin capraz gorunumu calismanin kendisi).
+ROL_SAHIP = "sahip"
+ROL_YONETICI = "yonetici"
+
 SEMA = """
 CREATE TABLE IF NOT EXISTS dukkanlar (
     id       INTEGER PRIMARY KEY,
@@ -258,6 +264,75 @@ def dukkan_kimlikleri(baglanti):
             baglanti.execute("SELECT id FROM dukkanlar ORDER BY id")]
 
 
+# ---------------------------------------------------------------- yonetici
+
+def yonetici_mi(kisi):
+    """Giris yapmis kisi yonetici rolunde mi. kisi None ise False."""
+    return bool(kisi) and kisi["rol"] == ROL_YONETICI
+
+
+def tum_kullanicilar(baglanti):
+    """Butun kullanicilar, dukkan adlariyla. Yonetici kullanici yonetimi icin."""
+    return baglanti.execute(
+        "SELECT k.*, d.ad AS dukkan_adi FROM kullanicilar k"
+        " JOIN dukkanlar d ON d.id = k.dukkan_id"
+        " ORDER BY k.dukkan_id, k.id"
+    ).fetchall()
+
+
+def rol_yaz(baglanti, kullanici_id, rol):
+    """Bir kullanicinin rolunu degistirir. Gecersiz rol sessizce yok sayilir."""
+    if rol not in (ROL_SAHIP, ROL_YONETICI):
+        return
+    baglanti.execute("UPDATE kullanicilar SET rol = ? WHERE id = ?",
+                     (rol, kullanici_id))
+    baglanti.commit()
+
+
+def sifre_sifirla(baglanti, kullanici_id, sifre):
+    """Yoneticinin bir kullanicinin sifresini sifirlamasi; sorun varsa metin doner."""
+    return sifre_degistir(baglanti, kullanici_id, sifre)
+
+
+def yonetici_say(baglanti):
+    """Kac yonetici var. Son yoneticinin rolu dususmesin diye kontrol icin."""
+    return baglanti.execute(
+        "SELECT COUNT(*) FROM kullanicilar WHERE rol = ?", (ROL_YONETICI,)
+    ).fetchone()[0]
+
+
+def yonetici_olustur(baglanti, eposta, ad, sifre, dukkan_id=None):
+    """Yonetici rolunde bir kullanici kurar ya da mevcut kullaniciyi yonetici yapar.
+
+    dukkan_id verilmezse ilk dukkana baglanir (yonetici zaten butun dukkanlari
+    gorur; hangi dukkana bagli oldugu onemsiz, ama kayit dukkansiz olamaz).
+    Doner: (kullanici_id, "") ya da (None, hata_metni).
+    """
+    eposta = _eposta_duzelt(eposta)
+    mevcut = kullanici_bul(baglanti, eposta)
+    if mevcut:
+        rol_yaz(baglanti, mevcut["id"], ROL_YONETICI)
+        if sifre:
+            sifre_degistir(baglanti, mevcut["id"], sifre)
+        return mevcut["id"], ""
+    if len(sifre or "") < EN_KISA_SIFRE:
+        return None, f"Şifre en az {EN_KISA_SIFRE} karakter olmalı."
+    if dukkan_id is None:
+        satir = baglanti.execute(
+            "SELECT id FROM dukkanlar ORDER BY id LIMIT 1").fetchone()
+        dukkan_id = satir["id"] if satir else None
+    if dukkan_id is None:
+        return None, "Önce bir dükkan kurulmalı."
+    kullanici_id = baglanti.execute(
+        "INSERT INTO kullanicilar (dukkan_id, eposta, ad, sifre_ozet, rol, kuruldu)"
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        (dukkan_id, eposta, (ad or "Yönetici").strip(),
+         sifre_ozetle(sifre), ROL_YONETICI, _simdi()),
+    ).lastrowid
+    baglanti.commit()
+    return kullanici_id, ""
+
+
 # ---------------------------------------------------------------- oturum
 
 def oturum_anahtari(baglanti):
@@ -282,10 +357,27 @@ def oturum_anahtari(baglanti):
 
 
 if __name__ == "__main__":
+    import sys
     baglanti = hazirla()
+
+    # Yonetici kur/terfi:  python hesaplar.py yonetici <kullanici_adi> <sifre> [ad]
+    if len(sys.argv) >= 2 and sys.argv[1] == "yonetici":
+        if len(sys.argv) < 4:
+            print("Kullanim: python hesaplar.py yonetici <kullanici_adi> <sifre> [ad]")
+        else:
+            eposta, sifre = sys.argv[2], sys.argv[3]
+            ad = sys.argv[4] if len(sys.argv) > 4 else "Yönetici"
+            kid, hata = yonetici_olustur(baglanti, eposta, ad, sifre)
+            if hata:
+                print("Olmadi:", hata)
+            else:
+                print(f"Yonetici hazir. Kullanici adi: {_eposta_duzelt(eposta)}")
+        raise SystemExit
+
     print(f"Defter: {DB_YOLU}")
     for satir in baglanti.execute(
         "SELECT d.id, d.ad, COUNT(k.id) AS kisi FROM dukkanlar d "
         "LEFT JOIN kullanicilar k ON k.dukkan_id = d.id GROUP BY d.id ORDER BY d.id"
     ):
         print(f"  {satir['id']}. {satir['ad']} - {satir['kisi']} kullanici")
+    print(f"  ({yonetici_say(baglanti)} yönetici)")
