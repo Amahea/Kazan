@@ -142,9 +142,11 @@ def kullanici_bul(baglanti, eposta):
 
 
 def kullanici(baglanti, kullanici_id):
+    # LEFT JOIN: dukkani henuz deftere yazilmamis (eski tek-dukkan kurulumu)
+    # bir kullanici da bulunur; aksi halde giris bile yapamazdi.
     return baglanti.execute(
-        "SELECT k.*, d.ad AS dukkan_adi FROM kullanicilar k "
-        "JOIN dukkanlar d ON d.id = k.dukkan_id WHERE k.id = ?", (kullanici_id,)
+        "SELECT k.*, COALESCE(d.ad, '') AS dukkan_adi FROM kullanicilar k "
+        "LEFT JOIN dukkanlar d ON d.id = k.dukkan_id WHERE k.id = ?", (kullanici_id,)
     ).fetchone()
 
 
@@ -272,12 +274,24 @@ def yonetici_mi(kisi):
 
 
 def tum_kullanicilar(baglanti):
-    """Butun kullanicilar, dukkan adlariyla. Yonetici kullanici yonetimi icin."""
+    """Butun kullanicilar, dukkan adlariyla. Yonetici kullanici yonetimi icin.
+
+    LEFT JOIN sart: dukkani deftere yazilmamis bir kullanici INNER JOIN'de
+    listeden tamamen duserdi - "yeni ekledigim kullanici gorunmuyor"un sebebi
+    buydu. Dukkan adi bilinmiyorsa bos string doner.
+    """
     return baglanti.execute(
-        "SELECT k.*, d.ad AS dukkan_adi FROM kullanicilar k"
-        " JOIN dukkanlar d ON d.id = k.dukkan_id"
+        "SELECT k.*, COALESCE(d.ad, '') AS dukkan_adi FROM kullanicilar k"
+        " LEFT JOIN dukkanlar d ON d.id = k.dukkan_id"
         " ORDER BY k.dukkan_id, k.id"
     ).fetchall()
+
+
+def kullanici_sil(baglanti, kullanici_id):
+    """Bir kullaniciyi defterden siler. Dukkan ve verisi durur; yalnizca o
+    kisinin giris hakki kalkar."""
+    baglanti.execute("DELETE FROM kullanicilar WHERE id = ?", (kullanici_id,))
+    baglanti.commit()
 
 
 def rol_yaz(baglanti, kullanici_id, rol):

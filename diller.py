@@ -1293,7 +1293,6 @@ SOZLUK = {
         "A shop appears here when it stops entering end-of-day data (sales/count). "
         "{u} days late counts as a warning, {k}+ days as critical.",
     "Dükkân": "Shop",
-    "Durum": "Status",
     "Son veri": "Last data",
     "Son giriş": "Last login",
     "Kullanıcı": "User",
@@ -1312,7 +1311,6 @@ SOZLUK = {
     "yeni şifre": "new password",
     "sıfırla": "reset",
     "Rol": "Role",
-    "Şifre": "Password",
     "Yeni dükkân + sahibi": "New shop + owner",
     "Yeni bir dükkân ve o dükkânın ilk kullanıcısını açar. "
     "Dükkânın boş veri dosyası kendiliğinden kurulur.":
@@ -1325,6 +1323,18 @@ SOZLUK = {
     "Şifre sıfırlandı.": "Password reset.",
     "Rol güncellendi.": "Role updated.",
     "Son yöneticinin rolü düşürülemez.": "Can't demote the last admin.",
+    "Sil": "Delete",
+    "(defterde yok)": "(not registered)",
+    "Dükkâna kullanıcı ekle": "Add user to a shop",
+    "Var olan bir dükkâna (örneğin dışarıdan içe aktardığın bir "
+    "dükkâna) giriş hesabı ekler.":
+        "Adds a login to an existing shop (for example a shop you imported).",
+    "Kullanıcı ekle": "Add user",
+    "Kullanıcı eklendi.": "User added.",
+    "Dükkân bulunamadı.": "Shop not found.",
+    "Kullanıcı silindi.": "User deleted.",
+    "Kendi hesabını silemezsin.": "You can't delete your own account.",
+    "Son yöneticiyi silemezsin.": "You can't delete the last admin.",
     "Kullanıcı bulunamadı.": "User not found.",
     "{ad} açıldı.": "{ad} created.",
     "Çapraz dükkân özeti": "Cross-shop summary",
@@ -1332,9 +1342,7 @@ SOZLUK = {
     "(hangi dükkân hâlâ canlı). Fire, kâra yansımayan kayıp.":
         "All-time totals. The last column is revenue of the last 30 days only "
         "(which shop is still active). Waste is loss not reflected in profit.",
-    "Gün": "Days",
-    "Brüt kâr": "Gross profit",
-    "Gider": "Expenses",
+    "Gün sayısı": "Days",
     "Net": "Net",
     "Son 30g": "Last 30d",
     "Model ve tahmin sağlığı": "Model & forecast health",
@@ -1347,7 +1355,6 @@ SOZLUK = {
     "Veri günü": "Data days",
     "Kullandığı": "Uses",
     "Anomali (14g)": "Anomalies (14d)",
-    "çalışıyor": "running",
     "yetersiz (+{n} gün)": "insufficient (+{n} days)",
     "yalnız ortalama": "mean only",
     "günler": "weekdays",

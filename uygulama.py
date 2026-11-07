@@ -3748,15 +3748,38 @@ def yonetici_kullanicilar(defter, mesaj=""):
             f'<input type="password" name="sifre" placeholder="{C("yeni şifre")}" '
             f'style="width:120px" autocomplete="new-password">'
             f'<button class="ikincil">{C("sıfırla")}</button></form>')
+        sil_form = (
+            f'<form method="post" action="/yonetici-kullanici-sil" style="display:inline">'
+            f'<input type="hidden" name="kullanici_id" value="{k["id"]}">'
+            f'<button class="sil">{C("sil")}</button></form>')
+        dukkan_ad = kacir(k["dukkan_adi"]) if k["dukkan_adi"] else f"<span class='bos'>{C('(defterde yok)')}</span>"
         satir += (f"<tr><td><b>{kacir(k['eposta'])}</b>"
                   f"<div class='bos' style='font-size:13px'>{kacir(k['ad'] or '')}</div></td>"
-                  f"<td>{kacir(k['dukkan_adi'])} <span class='bos'>#{k['dukkan_id']}</span></td>"
+                  f"<td>{dukkan_ad} <span class='bos'>#{k['dukkan_id']}</span></td>"
                   f"<td>{rol_rozet}{rol_dugme}</td>"
                   f"<td class='sag'>{_yon_tarih(k['son_giris'])}</td>"
-                  f"<td>{sifre_form}</td></tr>")
+                  f"<td>{sifre_form}</td>"
+                  f"<td class='sag'>{sil_form}</td></tr>")
     tablo = (f"<table><tr><th>{C('Kullanıcı')}</th><th>{C('Dükkân')}</th>"
              f"<th>{C('Rol')}</th><th class='sag'>{C('Son giriş')}</th>"
-             f"<th>{C('Şifre')}</th></tr>{satir}</table>")
+             f"<th>{C('Şifre')}</th><th class='sag'>{C('Sil')}</th></tr>{satir}</table>")
+
+    secenek = ""
+    for dd in defter.execute("SELECT id, ad FROM dukkanlar ORDER BY id"):
+        secenek += (f'<option value="{dd["id"]}">'
+                    f'{kacir(dd["ad"])} #{dd["id"]}</option>')
+    dukkana_ekle = (f"""
+<div class="kart"><h2>{C("Dükkâna kullanıcı ekle")}</h2>
+<p class="bos">{C("Var olan bir dükkâna (örneğin dışarıdan içe aktardığın bir "
+                  "dükkâna) giriş hesabı ekler.")}</p>
+<form method="post" action="/yonetici-kullanici-ekle" class="giris-liste" style="max-width:420px">
+<div class="oge"><label>{C("Dükkân")}</label>
+<select name="dukkan_id">{secenek}</select></div>
+<div class="oge"><label>{C("Kullanıcı adı")}</label>
+<input type="text" name="eposta" required autocomplete="off"></div>
+<div class="oge"><label>{C("Şifre (en az {n} karakter)", n=hesaplar.EN_KISA_SIFRE)}</label>
+<input type="password" name="sifre" required autocomplete="new-password"></div>
+<button>{C("Kullanıcı ekle")}</button></form></div>""")
 
     yeni = (f"""
 <div class="kart"><h2>{C("Yeni dükkân + sahibi")}</h2>
@@ -3773,7 +3796,8 @@ def yonetici_kullanicilar(defter, mesaj=""):
 <input type="password" name="sifre" required autocomplete="new-password"></div>
 <button>{C("Dükkânı aç")}</button></form></div>""")
 
-    return (f'<div class="kart"><h2>{C("Kullanıcılar")}</h2>{tablo}</div>{yeni}')
+    return (f'<div class="kart"><h2>{C("Kullanıcılar")}</h2>{tablo}</div>'
+            f'{dukkana_ekle}{yeni}')
 
 
 def yonetici_ozet(defter):
@@ -3803,7 +3827,7 @@ def yonetici_ozet(defter):
     return (f"""
 <div class="kart"><h2>{C("Çapraz dükkân özeti")}</h2>
 <p class="bos">{aciklama}</p>
-<table><tr><th>{C('Dükkân')}</th><th class='sag'>{C('Gün')}</th>
+<table><tr><th>{C('Dükkân')}</th><th class='sag'>{C('Gün sayısı')}</th>
 <th class='sag'>{C('Ciro')}</th><th class='sag'>{C('Brüt kâr')}</th>
 <th class='sag'>{C('Gider')}</th><th class='sag'>{C('Net')}</th>
 <th class='sag'>{C('Fire')}</th><th class='sag'>{C('Son 30g')}</th></tr>{govde}</table></div>""")
@@ -4154,6 +4178,36 @@ class Sunucu(BaseHTTPRequestHandler):
                 return
             hesaplar.rol_yaz(defter, kid, rol)
             self._yonlendir(geri, C("Rol güncellendi."))
+            return
+        if parca.path == "/yonetici-kullanici-ekle":
+            try:
+                did = int(d("dukkan_id"))
+            except ValueError:
+                self._yonlendir(geri, "!" + C("Dükkân bulunamadı."))
+                return
+            hata = hesaplar.kayit_denetle(defter, d("eposta"), d("sifre"))
+            if hata:
+                self._yonlendir(geri, "!" + C(hata))
+                return
+            hesaplar.kullanici_ekle(defter, did, d("eposta"), d("ad"), d("sifre"))
+            self._yonlendir(geri, C("Kullanıcı eklendi."))
+            return
+        if parca.path == "/yonetici-kullanici-sil":
+            try:
+                kid = int(d("kullanici_id"))
+            except ValueError:
+                self._yonlendir(geri, "!" + C("Kullanıcı bulunamadı."))
+                return
+            if kisi and kid == kisi["id"]:
+                self._yonlendir(geri, "!" + C("Kendi hesabını silemezsin."))
+                return
+            hedef = hesaplar.kullanici(defter, kid)
+            if (hedef and hedef["rol"] == hesaplar.ROL_YONETICI
+                    and hesaplar.yonetici_say(defter) <= 1):
+                self._yonlendir(geri, "!" + C("Son yöneticiyi silemezsin."))
+                return
+            hesaplar.kullanici_sil(defter, kid)
+            self._yonlendir(geri, C("Kullanıcı silindi."))
             return
         if parca.path == "/yonetici-dukkan-ekle":
             hata = hesaplar.kayit_denetle(defter, d("eposta"), d("sifre"),
