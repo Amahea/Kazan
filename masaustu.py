@@ -32,9 +32,16 @@ def main():
         print("Masaustu penceresi icin once:  pip install pywebview")
         webbrowser.open(url)
         return
-    # Kendi penceresi: tarayici cubugu yok, program gibi durur.
-    webview.create_window(BASLIK, url, width=1200, height=820,
-                          min_size=(900, 600))
+    # Kendi penceresi: tarayici cubugu yok, program gibi durur. Acilista TAM
+    # EKRAN (maximized) gelir ki sayfa ortada kucuk durmasin; width/height
+    # yalnizca pencere kuculturulurse gecerli olan taban olcudur.
+    try:
+        webview.create_window(BASLIK, url, width=1200, height=820,
+                              min_size=(900, 600), maximized=True)
+    except TypeError:
+        # Cok eski pywebview 'maximized' desteklemez: en azindan buyuk ac.
+        webview.create_window(BASLIK, url, width=1400, height=900,
+                              min_size=(900, 600))
     # Ozel User-Agent: site bu isareti gorunce "masaustu uygulamasindan geliniyor"
     # anlar ve "Masaustu surumunu indir" butonunu gostermez (zaten masaustundesin).
     try:
