@@ -76,3 +76,37 @@ Körlemesine bir şey silme. En sık görülen:
 - **Çakışma (conflict)** → mesajı not al, yardım iste.
 
 Takılırsan ekrandaki yazıyı olduğu gibi aktar, birlikte bakarız.
+
+---
+
+## Otomatik güncelleme (bir kez kur, sonra sadece `git push`)
+
+Her seferinde SSH'a girmek istemiyorsan, sunucu GitHub'ı kendisi kontrol
+edebilir: `otomatik-guncelle.sh` birkaç dakikada bir bakar, yeni sürüm varsa
+çeker ve servisi yeniden başlatır. Yoksa hiçbir şey yapmaz; pull başarısız
+olursa servise dokunmaz (site çalışır kalır).
+
+**Tek seferlik kurulum** (sunucuda, SSH'ta):
+
+```bash
+cd ~/Kazan
+git pull                         # betiği ilk kez getir
+chmod +x otomatik-guncelle.sh
+
+# cron'un şifresiz restart edebilmesi için (yalnızca bu tek komuta izin):
+echo "$USER ALL=(ALL) NOPASSWD: $(which systemctl) restart kazan" \
+  | sudo tee /etc/sudoers.d/kazan-restart
+sudo chmod 440 /etc/sudoers.d/kazan-restart
+
+# 3 dakikada bir kontrol eden cron görevini ekle:
+( crontab -l 2>/dev/null; echo "*/3 * * * * $HOME/Kazan/otomatik-guncelle.sh" ) | crontab -
+```
+
+Bundan sonra: bilgisayarda `git push` → site ~3 dakika içinde kendiliğinden
+güncellenir. Kayıtlar `~/kazan-guncelleme.log`'da.
+
+**Kapatmak** istersen: `crontab -e` ile o satırı sil.
+
+> Dikkat: Otomatik olduğu için **bozuk bir kodu push edersen** site de birkaç
+> dakikada bozulur. Test edilmiş kodu push et; bir terslik olursa cron'u
+> durdurup (yukarıdaki satırı sil) elle düzelt.
