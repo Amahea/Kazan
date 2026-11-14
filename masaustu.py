@@ -46,8 +46,10 @@ if __name__ == "__main__":
 # Windows'ta tek dosyalik bir .exe yapmak icin (komut satirinda, bu klasorde):
 #
 #     pip install pywebview pyinstaller
-#     pyinstaller --noconsole --onefile --name "Kazan" masaustu.py
+#     pyinstaller --noconsole --onefile --name "Kazan" --icon simge.ico masaustu.py
 #
-# Olusan dosya:  dist\Kazan.exe  -- cift tiklayinca program penceresi acilir.
-# Kendi simgen varsa:  --icon simge.ico  ekle.
+# Olusan dosya:  dist\Kazan.exe  -- cift tiklayinca program penceresi acilir,
+# masaustunde ve gorev cubugunda simge.ico gorunur.
+# simge.ico yoksa once:  python simge_yap.py   (uretir). --icon'u atlarsan
+# varsayilan simge kullanilir.
 # (Windows 10/11'de pywebview Edge WebView2'yi kullanir; genelde zaten kurulu.)

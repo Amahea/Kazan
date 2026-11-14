@@ -1275,6 +1275,12 @@ SOZLUK = {
         "spread away. It may be a counting/production error or an unusual loss; "
         "worth checking.",
 
+    # --- masaüstü indirme ---
+    "Masaüstü sürümü": "Desktop app",
+    "Masaüstü sürümü henüz hazır değil": "The desktop app isn't ready yet",
+    "Masaüstü uygulaması yakında burada olacak.":
+        "The desktop app will be here soon.",
+
     # --- yonetici paneli ---
     "Yönetici": "Admin",
     "Yönetici paneli": "Admin panel",

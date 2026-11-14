@@ -42,6 +42,23 @@ from veritabani import ayar, ayar_yaz, sayi
 PORT = int(os.environ.get("PORT") or 8000)
 SUNUCUDA = "PORT" in os.environ
 
+# Masaustu uygulamasinin indirilebilir dosyasi (sunucuya elle yuklenen .exe).
+# 'dagitim/' klasorune bir .exe konulunca ust menude "Masaustu surumu" butonu
+# kendiliginden belirir; yoksa buton hic gorunmez. Dosya buyuk oldugu icin
+# git'e girmez (.gitignore), sunucuya ayrica yuklenir.
+MASAUSTU_DIZIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dagitim")
+
+
+def _masaustu_dosyasi():
+    """dagitim/ icindeki ilk .exe'nin tam yolu, yoksa None."""
+    try:
+        for ad in sorted(os.listdir(MASAUSTU_DIZIN)):
+            if ad.lower().endswith(".exe"):
+                return os.path.join(MASAUSTU_DIZIN, ad)
+    except OSError:
+        pass
+    return None
+
 # Istegi karsilayan is parcaciginin kendine ait bilgileri. Program birden
 # fazla dukkana hizmet ettigi icin bunlar ORTAK olamaz: iki dukkan ayni anda
 # kullanirken, ortak bir degiskene yazilan para birimi otekinin ekranina
@@ -407,6 +424,10 @@ button.mini { background:none; color:#33475b; padding:4px 8px; font-weight:400; 
              background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.28);
              border-radius:8px; padding:6px 12px; white-space:nowrap; }
 .yon-giris:hover { background:rgba(255,255,255,.26); }
+.indir-btn { font-size:14px; color:#0f4c75; font-weight:600; text-decoration:none;
+             background:#f2b05a; border:1px solid #e0a04a; border-radius:8px;
+             padding:6px 12px; white-space:nowrap; }
+.indir-btn:hover { background:#eda645; }
 """
 
 
@@ -500,6 +521,9 @@ def sayfa(baglanti, yol, baslik, icerik, mesaj=""):
     # Yonetici rolundeki kullaniciya ust kosede panele giris baglantisi.
     yon_giris = (f'<a class="yon-giris" href="/yonetici">🛡 {C("Yönetici")}</a>'
                  if hesaplar.yonetici_mi(getattr(_istek, "kullanici", None)) else "")
+    # Masaustu uygulamasi yuklenmisse ust kosede indirme butonu.
+    indir_giris = (f'<a class="indir-btn" href="/indir">⤓ {C("Masaüstü sürümü")}</a>'
+                   if _masaustu_dosyasi() else "")
 
     # Ana menude tahmin sutunu solda durur. Icerik HTML'de once yazilir ki
     # telefonda once gunun kartlari, altinda tahmin gorunsun.
@@ -513,7 +537,7 @@ def sayfa(baglanti, yol, baslik, icerik, mesaj=""):
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{kacir(C(baslik))} - {dukkan}</title><style>{STIL}</style></head>
 <body><header style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
-<h1>{dukkan}</h1><div style="display:flex;gap:10px;align-items:center">{yon_giris}{dil_secici(yol)}</div></header><nav>{menu}</nav>
+<h1>{dukkan}</h1><div style="display:flex;gap:10px;align-items:center">{indir_giris}{yon_giris}{dil_secici(yol)}</div></header><nav>{menu}</nav>
 <main>{mesaj_html}{govde}</main>{SIFRE_BETIGI}{OTOMATIK_YENILE if yol == "/" else ""}</body></html>"""
 
 
@@ -4128,6 +4152,33 @@ class Sunucu(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(veri)
 
+    def _masaustu_indir(self):
+        """Masaustu uygulamasini (dagitim/ icindeki .exe) indirme olarak yollar."""
+        yol = _masaustu_dosyasi()
+        if not yol:
+            self._gonder(
+                f"<!DOCTYPE html><html lang='{diller.simdiki()}'><head>"
+                f"<meta charset='utf-8'><title>Masaüstü</title><style>{STIL}</style>"
+                f"</head><body><main><div class='kart'>"
+                f"<h2>{C('Masaüstü sürümü henüz hazır değil')}</h2>"
+                f"<p class='bos'>{C('Masaüstü uygulaması yakında burada olacak.')}</p>"
+                f"<p><a href='/'>{C('Ana sayfaya dön')}</a></p></div></main></body></html>",
+                404)
+            return
+        try:
+            with open(yol, "rb") as dosya:
+                veri = dosya.read()
+        except OSError:
+            self._gonder("<h1>İndirilemedi</h1>", 500)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Disposition",
+                         f'attachment; filename="{os.path.basename(yol)}"')
+        self.send_header("Content-Length", str(len(veri)))
+        self.end_headers()
+        self.wfile.write(veri)
+
     def _yetki_yok(self):
         return (f"<!DOCTYPE html><html lang='{diller.simdiki()}'><head>"
                 f"<meta charset='utf-8'><title>Yetki yok</title><style>{STIL}</style>"
@@ -4296,6 +4347,9 @@ class Sunucu(BaseHTTPRequestHandler):
             # Yonetici paneli tek dukkana bagli degil; defter acikken islenir.
             if parca.path.startswith("/yonetici"):
                 self._yonetici_get(defter, parca, kisi)
+                return
+            if parca.path == "/indir":
+                self._masaustu_indir()
                 return
         except Exception as hata:
             self._hata_sayfasi(hata)

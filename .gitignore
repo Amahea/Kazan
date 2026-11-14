@@ -23,3 +23,9 @@ __pycache__/
 .idea/
 Thumbs.db
 desktop.ini
+
+# Masaustu uygulamasinin derlenmis dosyalari (buyuk ikili; sunucuya ayri yuklenir)
+dagitim/*.exe
+build/
+dist/
+*.spec
