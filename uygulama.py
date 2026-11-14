@@ -4181,8 +4181,9 @@ class Sunucu(BaseHTTPRequestHandler):
         """
         cerez = self.headers.get("Cookie")
         ua = self.headers.get("User-Agent", "")
+        _istek.masaustu_uygulama = "KazanMasaustu" in ua
         _istek.indir_dosya = _masaustu_dosyasi()
-        _istek.indir_gizle = ("KazanMasaustu" in ua
+        _istek.indir_gizle = (_istek.masaustu_uygulama
                               or guvenlik.cerez_deger(cerez, "indirildi") == "1")
 
     def _masaustu_indir(self):
@@ -4377,8 +4378,12 @@ class Sunucu(BaseHTTPRequestHandler):
                     # (ayri sayfa degil, giris sayfasinin icinde bir iframe).
                     # Isaret cerezi konunca bir daha kapali baslar; istersen
                     # "Tanıtımı gör" ile yine acilir.
+                    # Masaustu uygulamasinda ilk acilista tanitim otomatik
+                    # acilmaz; dogrudan giris ekrani gelir (tanitim yine de
+                    # "Tanitimi gor" dugmesinde durur).
                     ilk = (parca.path == "/"
                            and hesaplar.kullanici_var_mi(defter)
+                           and not getattr(_istek, "masaustu_uygulama", False)
                            and not guvenlik.cerez_deger(
                                self.headers.get("Cookie"), "tanitim_goruldu"))
                     cerez = (guvenlik.bayrak_cerezi("tanitim_goruldu", self._https_mi())
