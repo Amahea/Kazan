@@ -35,7 +35,12 @@ def main():
     # Kendi penceresi: tarayici cubugu yok, program gibi durur.
     webview.create_window(BASLIK, url, width=1200, height=820,
                           min_size=(900, 600))
-    webview.start()
+    # Ozel User-Agent: site bu isareti gorunce "masaustu uygulamasindan geliniyor"
+    # anlar ve "Masaustu surumunu indir" butonunu gostermez (zaten masaustundesin).
+    try:
+        webview.start(user_agent="KazanMasaustu/1.0")
+    except TypeError:
+        webview.start()   # cok eski pywebview: user_agent desteklemez
 
 
 if __name__ == "__main__":

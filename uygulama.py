@@ -64,6 +64,18 @@ def _masaustu_dosyasi():
                 return os.path.join(MASAUSTU_DIZIN, ad)
     return None
 
+
+def _indir_goster():
+    """'Masaüstü sürümü' butonu gösterilsin mi.
+
+    Gösterilir: indirilebilir dosya varsa. Gösterilmez: istek masaüstü
+    uygulamasının kendisinden geliyorsa (zaten masaüstündesin) ya da kullanıcı
+    daha önce indirdiyse (indirme anında konan çerezden anlaşılır). Bayraklar
+    her istekte _masaustu_bayrak ile _istek'e yazılır.
+    """
+    return (bool(getattr(_istek, "indir_dosya", None))
+            and not getattr(_istek, "indir_gizle", False))
+
 # Istegi karsilayan is parcaciginin kendine ait bilgileri. Program birden
 # fazla dukkana hizmet ettigi icin bunlar ORTAK olamaz: iki dukkan ayni anda
 # kullanirken, ortak bir degiskene yazilan para birimi otekinin ekranina
@@ -526,9 +538,10 @@ def sayfa(baglanti, yol, baslik, icerik, mesaj=""):
     # Yonetici rolundeki kullaniciya ust kosede panele giris baglantisi.
     yon_giris = (f'<a class="yon-giris" href="/yonetici">🛡 {C("Yönetici")}</a>'
                  if hesaplar.yonetici_mi(getattr(_istek, "kullanici", None)) else "")
-    # Masaustu uygulamasi yuklenmisse ust kosede indirme butonu.
+    # Masaustu uygulamasi yuklenmisse (ve bu masaustu uygulamasindan gelmiyorsa,
+    # kullanici daha once indirmediyse) ust kosede indirme butonu.
     indir_giris = (f'<a class="indir-btn" href="/indir">⤓ {C("Masaüstü sürümü")}</a>'
-                   if _masaustu_dosyasi() else "")
+                   if _indir_goster() else "")
 
     # Ana menude tahmin sutunu solda durur. Icerik HTML'de once yazilir ki
     # telefonda once gunun kartlari, altinda tahmin gorunsun.
@@ -721,7 +734,9 @@ def giris_sayfasi(hata="", eposta="", tanitim_ac=False):
         alt=C('Dükkanın burada kayıtlı değil mi? <a href="/kayit">Yeni dükkan aç</a>')
             + '<br>'
             + C('Program ne işe yarıyor? <a href="/tanitim">Tanıtımı gör</a>')
-              .replace('<a href="/tanitim">', f'<a href="/tanitim" onclick="{ac_js}">'),
+              .replace('<a href="/tanitim">', f'<a href="/tanitim" onclick="{ac_js}">')
+            + (f'<br><a href="/indir">⤓ {C("Masaüstü uygulamasını indir")}</a>'
+               if _indir_goster() else ''),
         ek=_tanitim_paneli(tanitim_ac))
 
 
@@ -4157,8 +4172,22 @@ class Sunucu(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(veri)
 
+    def _masaustu_bayrak(self):
+        """Bu istek icin 'indir butonu' bayraklarini _istek'e yazar.
+
+        indir_dosya: indirilebilir dosya var mi. indir_gizle: buton gizlensin mi
+        (masaustu uygulamasindan geliniyorsa UA'dan, ya da daha once indirildiyse
+        cerezden). Her istegin basinda bir kez cagrilir.
+        """
+        cerez = self.headers.get("Cookie")
+        ua = self.headers.get("User-Agent", "")
+        _istek.indir_dosya = _masaustu_dosyasi()
+        _istek.indir_gizle = ("KazanMasaustu" in ua
+                              or guvenlik.cerez_deger(cerez, "indirildi") == "1")
+
     def _masaustu_indir(self):
-        """Masaustu uygulamasini (dagitim/ icindeki .exe) indirme olarak yollar."""
+        """Masaustu uygulamasini (dagitim/ icindeki dosya) indirme olarak yollar.
+        Indirince 'indirildi' cerezi konur; boylece buton o tarayicida gizlenir."""
         yol = _masaustu_dosyasi()
         if not yol:
             self._gonder(
@@ -4182,6 +4211,9 @@ class Sunucu(BaseHTTPRequestHandler):
         self.send_header("Content-Type", tur)
         self.send_header("Content-Disposition", f'attachment; filename="{ad}"')
         self.send_header("Content-Length", str(len(veri)))
+        # Indirdi: bu tarayicida butonu bir daha gosterme.
+        self.send_header("Set-Cookie",
+                         guvenlik.deger_cerezi("indirildi", "1", self._https_mi()))
         self.end_headers()
         self.wfile.write(veri)
 
@@ -4310,6 +4342,7 @@ class Sunucu(BaseHTTPRequestHandler):
             return
 
         self._dili_coz()
+        self._masaustu_bayrak()
         if parca.path == "/dil":
             # Ustteki TR/EN dugmesi. Secimi cereze yazip gelinen sayfaya doner.
             sorgu = urllib.parse.parse_qs(parca.query)
@@ -4320,6 +4353,11 @@ class Sunucu(BaseHTTPRequestHandler):
             cerez = (guvenlik.deger_cerezi("dil", secim, self._https_mi())
                      if secim in diller.DESTEKLENEN else None)
             self._yonlendir(geri, "", cerez)
+            return
+        # Masaustu indirme herkese acik: giris sayfasindan da indirilebilsin diye
+        # kimlik dogrulamadan once gelir.
+        if parca.path == "/indir":
+            self._masaustu_indir()
             return
 
         defter = hesaplar.baglan()
@@ -4353,9 +4391,6 @@ class Sunucu(BaseHTTPRequestHandler):
             # Yonetici paneli tek dukkana bagli degil; defter acikken islenir.
             if parca.path.startswith("/yonetici"):
                 self._yonetici_get(defter, parca, kisi)
-                return
-            if parca.path == "/indir":
-                self._masaustu_indir()
                 return
         except Exception as hata:
             self._hata_sayfasi(hata)
@@ -4396,6 +4431,7 @@ class Sunucu(BaseHTTPRequestHandler):
             self.rfile.read(uzunluk).decode("utf-8"), keep_blank_values=True
         )
         self._dili_coz()
+        self._masaustu_bayrak()
 
         defter = hesaplar.baglan()
         try:

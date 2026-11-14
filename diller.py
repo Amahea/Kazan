@@ -1277,6 +1277,7 @@ SOZLUK = {
 
     # --- masaüstü indirme ---
     "Masaüstü sürümü": "Desktop app",
+    "Masaüstü uygulamasını indir": "Download the desktop app",
     "Masaüstü sürümü henüz hazır değil": "The desktop app isn't ready yet",
     "Masaüstü uygulaması yakında burada olacak.":
         "The desktop app will be here soon.",
