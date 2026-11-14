@@ -154,6 +154,22 @@ document.addEventListener('change', function (olay) {
 SIFRE_GOSTER = ('<label class="goster"><input type="checkbox" class="sifre-goster">'
                 'Şifreyi göster</label>')
 
+# Ana ekranda (yalnızca orada) sayfayı sessizce tazeler: kasa, günün satışı ve
+# hava, F5'e basmadan kendiliğinden güncellenir. Başka cihazdan (telefon,
+# masaüstü) girilen veri de böylece görünür. Kullanıcı bir alana yazıyorsa ya da
+# sekme arkadaysa tazelemez; yani veri girişini bölmez.
+OTOMATIK_YENILE = """<script>
+(function () {
+  var SANIYE = 90;
+  setInterval(function () {
+    if (document.visibilityState !== 'visible') return;
+    var o = document.activeElement;
+    if (o && /^(INPUT|SELECT|TEXTAREA)$/.test(o.tagName)) return;
+    location.reload();
+  }, SANIYE * 1000);
+})();
+</script>"""
+
 
 def sifre_alani(ad, etiket, otomatik="new-password", odak=False):
     """Etiketiyle birlikte bir sifre alani.
@@ -387,8 +403,10 @@ button.mini { background:none; color:#33475b; padding:4px 8px; font-weight:400; 
 .yon-rozet { display:inline-block; min-width:18px; text-align:center; font-size:12px;
              font-weight:700; padding:1px 7px; border-radius:20px;
              background:#b5320f; color:#fff; margin-left:6px; }
-.yon-giris { font-size:14px; color:#0f4c75; font-weight:600; text-decoration:none;
-             border:1px solid #cde0f0; border-radius:8px; padding:6px 12px; }
+.yon-giris { font-size:14px; color:#fff; font-weight:600; text-decoration:none;
+             background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.28);
+             border-radius:8px; padding:6px 12px; white-space:nowrap; }
+.yon-giris:hover { background:rgba(255,255,255,.26); }
 """
 
 
@@ -496,7 +514,7 @@ def sayfa(baglanti, yol, baslik, icerik, mesaj=""):
 <title>{kacir(C(baslik))} - {dukkan}</title><style>{STIL}</style></head>
 <body><header style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
 <h1>{dukkan}</h1><div style="display:flex;gap:10px;align-items:center">{yon_giris}{dil_secici(yol)}</div></header><nav>{menu}</nav>
-<main>{mesaj_html}{govde}</main>{SIFRE_BETIGI}</body></html>"""
+<main>{mesaj_html}{govde}</main>{SIFRE_BETIGI}{OTOMATIK_YENILE if yol == "/" else ""}</body></html>"""
 
 
 def _yan_hava_satirlari(baglanti, gun_sayisi=7):
