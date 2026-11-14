@@ -47,16 +47,21 @@ SUNUCUDA = "PORT" in os.environ
 # kendiliginden belirir; yoksa buton hic gorunmez. Dosya buyuk oldugu icin
 # git'e girmez (.gitignore), sunucuya ayrica yuklenir.
 MASAUSTU_DIZIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dagitim")
+# Indirilecek dosyanin olabilecek uzantilari, oncelik sirasiyla. .zip once:
+# tarayicilar .exe indirmesini "tehlikeli" diye engelleyebiliyor, .zip'i degil.
+MASAUSTU_UZANTILAR = (".zip", ".exe")
 
 
 def _masaustu_dosyasi():
-    """dagitim/ icindeki ilk .exe'nin tam yolu, yoksa None."""
+    """dagitim/ icindeki indirilebilir dosyanin tam yolu (.zip tercih), yoksa None."""
     try:
-        for ad in sorted(os.listdir(MASAUSTU_DIZIN)):
-            if ad.lower().endswith(".exe"):
-                return os.path.join(MASAUSTU_DIZIN, ad)
+        adlar = sorted(os.listdir(MASAUSTU_DIZIN))
     except OSError:
-        pass
+        return None
+    for uzanti in MASAUSTU_UZANTILAR:
+        for ad in adlar:
+            if ad.lower().endswith(uzanti):
+                return os.path.join(MASAUSTU_DIZIN, ad)
     return None
 
 # Istegi karsilayan is parcaciginin kendine ait bilgileri. Program birden
@@ -4171,10 +4176,11 @@ class Sunucu(BaseHTTPRequestHandler):
         except OSError:
             self._gonder("<h1>İndirilemedi</h1>", 500)
             return
+        ad = os.path.basename(yol)
+        tur = "application/zip" if ad.lower().endswith(".zip") else "application/octet-stream"
         self.send_response(200)
-        self.send_header("Content-Type", "application/octet-stream")
-        self.send_header("Content-Disposition",
-                         f'attachment; filename="{os.path.basename(yol)}"')
+        self.send_header("Content-Type", tur)
+        self.send_header("Content-Disposition", f'attachment; filename="{ad}"')
         self.send_header("Content-Length", str(len(veri)))
         self.end_headers()
         self.wfile.write(veri)
