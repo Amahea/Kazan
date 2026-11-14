@@ -2353,7 +2353,10 @@ def sayfa_tahmin_gunlugu(baglanti, sorgu):
                 tah += (f"<div class='bos' style='font-size:13px'>"
                         f"{tl(g['alt'])} – {tl(g['ust'])}</div>")
             ger = para(g["gercek"]) if g["gercek"] is not None else "—"
-            if g["sapma"] is None:
+            if g.get("sansurlu"):
+                ger += (f" <span class='rozet'>{C('tükendi')}</span>")
+                sapma = f"<span class='bos'>{C('sansürlü')}</span>"
+            elif g["sapma"] is None:
                 sapma = "—"
             else:
                 renk = "yesil" if g["sapma"] <= 20 else ("" if g["sapma"] <= 40 else "kirmizi")

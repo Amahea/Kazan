@@ -1387,6 +1387,12 @@ SOZLUK = {
         "the temperature, rain and weekend effects from coefficients other shops "
         "have learned (coefficients only, never revenue). As your own data grows, "
         "the weight shifts to you.",
+    "{n} gün ürün tükendiği için 'sansürlü' sayıldı ve modele alınmadı — o "
+    "günlerde gerçek talep satıştan yüksek olabilir":
+        "{n} days were marked 'censored' because a product sold out and left out "
+        "of the model — on those days real demand may be higher than sales",
+    "tükendi": "sold out",
+    "sansürlü": "censored",
     "sıcaklığı aldı: her 1 derece günlük ciroyu ortalama {deger} birim değiştiriyor":
         "took temperature: each 1 degree changes daily revenue by about {deger} units",
     "sıcaklığı denedi ama hatayı düşürmedi, kullanmıyor":

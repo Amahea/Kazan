@@ -176,6 +176,41 @@ def _dogru_uydur(noktalar):
 
 # ---------------------------------------------------------------- gecmis
 
+SANSUR_CIRO_ESIK = 0.50   # gun cirosunun yarisindan fazlasi tukenen urunlerdense
+                          # gun 'genis capli tukenmis' = sansurlu sayilir (ayarlanabilir)
+
+
+def _sansurlu_gunler(baglanti):
+    """Gun-sonu sayiminda urun(ler) TUKENDIGI icin talebin tam gorulemedigi gunler.
+
+    Urun tukeninde gercek talep gorulmez; o gunun cirosu talebin ALT SINIRIDIR
+    (sagdan sansurlu gozlem). Ama tek bir KUCUK urunun tukenmesi gunun TOPLAM
+    cirosunu pek etkilemez; bu yuzden gun ancak tukenen urunlerin o gunku cirodaki
+    PAYI esigi (SANSUR_CIRO_ESIK) asarsa sansurlu sayilir. Tukenme olcutu: satilan
+    + stogu tutulan bir kalemin gun-sonu kalani ~0 VE o gun tuketimi>0 (gercekten
+    satilip bitmis). Dogrudan satis giren (sayim yapmayan) dukkanda kume bostur.
+    """
+    try:
+        rows = baglanti.execute(
+            "WITH tukenen AS ("
+            "  SELECT sm.tarih AS t, ss.kalem_id AS kid"
+            "  FROM sayimlar sm JOIN sayim_satirlari ss ON ss.sayim_id = sm.id"
+            "  JOIN kalemler k ON k.id = ss.kalem_id"
+            "  WHERE k.satilir = 1 AND k.takip = 1"
+            "    AND ss.kalan <= 1e-6 AND ss.tuketim > 1e-9)"
+            " SELECT s.tarih AS tarih,"
+            "   SUM(s.miktar * k.fiyat) AS toplam,"
+            "   SUM(CASE WHEN tu.kid IS NOT NULL THEN s.miktar * k.fiyat ELSE 0 END) AS tuk"
+            " FROM satislar s JOIN kalemler k ON k.id = s.kalem_id"
+            " LEFT JOIN tukenen tu ON tu.t = s.tarih AND tu.kid = s.kalem_id"
+            " GROUP BY s.tarih"
+        ).fetchall()
+        return {r["tarih"] for r in rows
+                if r["toplam"] and (r["tuk"] / r["toplam"]) >= SANSUR_CIRO_ESIK}
+    except Exception:
+        return set()
+
+
 def gecmis_gunler(baglanti):
     """Hem satisi hem gerceklesen hava kaydi olan gunler, etiketleriyle.
 
@@ -202,6 +237,7 @@ def gecmis_gunler(baglanti):
         return []
 
     harita = takvim.etiket_haritasi(baglanti, satirlar[0]["tarih"], satirlar[-1]["tarih"])
+    sansur = _sansurlu_gunler(baglanti)
     return [
         {
             "tarih": satir["tarih"],
@@ -212,6 +248,9 @@ def gecmis_gunler(baglanti):
                                      satir["yagmurlu"]),
             "gun": _tarihe_cevir(satir["tarih"]).weekday(),
             "etiketler": harita.get(satir["tarih"], set()),
+            # Urun tukendiyse gercek talep gorulmedi; bu gun eksik (sansurlu)
+            # gozlemdir ve katsayi ogreniminde kullanilmaz.
+            "sansurlu": satir["tarih"] in sansur,
         }
         for satir in satirlar
     ]
@@ -246,7 +285,7 @@ def _katsayi_profili(model):
     """
     if not model["yeterli"] or model["ortalama"] <= 0:
         return None
-    prof = {"gun_sayisi": model["gun_sayisi"]}
+    prof = {"gun_sayisi": model.get("gozlem_gun", model["gun_sayisi"])}
     if model["sicaklik"]:
         prof["sicaklik_rel"] = model["sicaklik"][0] / model["ortalama"]
     if model["yagmur"]:
@@ -345,9 +384,9 @@ def _onsel_harmanla(model, gunler, onsel):
     ortalamasina olceklenir -- seviye dukkandan, sekil havuzdan. Ne kadar odunc
     alindigi (1-w) durum_metni icin saklanir.
     """
-    n = model["gun_sayisi"]
+    n = len(gunler)              # sansursuz (gozlem) gun sayisi
     ort = model["ortalama"]
-    if ort <= 0:
+    if ort <= 0 or n == 0:
         return
     sic = [g["sicaklik"] for g in gunler]
     ort_sic = sum(sic) / len(sic) if sic else 20.0
@@ -406,28 +445,36 @@ def model_kur_gunlerden(gunler, onsel=None):
         "secim": {"sicaklik": False, "yagmur": False, "gun": "yok", "etiketler": set()},
         "cv": None,
         "onsel": bool(onsel),       # havuz kullanildi mi (durum_metni icin)
+        "sansurlu_gun": 0,          # urun tukendigi icin modele alinmayan gun
     }
-    kendi_yeterli = len(gunler) >= EN_AZ_GUN
-    havuz_yeterli = bool(onsel) and len(gunler) >= EN_AZ_ONSEL_GUN
+    # Sansurlu (urun tukenmis) gunler EKSIK GOZLEMDIR: talebin yalniz alt
+    # sinirini gosterirler, modeli asagi cekmesinler diye katsayi ogreniminde
+    # KULLANILMAZ. Yalnizca sansursuz ('gozlem') gunlerle ogrenilir.
+    gozlem = [g for g in gunler if not g.get("sansurlu")]
+    model["sansurlu_gun"] = len(gunler) - len(gozlem)
+    model["gozlem_gun"] = len(gozlem)
+
+    kendi_yeterli = len(gozlem) >= EN_AZ_GUN
+    havuz_yeterli = bool(onsel) and len(gozlem) >= EN_AZ_ONSEL_GUN
     model["yeterli"] = kendi_yeterli or havuz_yeterli
-    if onsel:
-        model["eksik_gun"] = max(0, EN_AZ_ONSEL_GUN - len(gunler))
-    if not gunler:
+    esik = EN_AZ_ONSEL_GUN if onsel else EN_AZ_GUN
+    model["eksik_gun"] = max(0, esik - len(gozlem))
+    if not gozlem:
         return model
 
-    model["ortalama"] = sum(g["ciro"] for g in gunler) / len(gunler)
-    sicakliklar = [g["sicaklik"] for g in gunler]
+    model["ortalama"] = sum(g["ciro"] for g in gozlem) / len(gozlem)
+    sicakliklar = [g["sicaklik"] for g in gozlem]
     model["sicaklik_araligi"] = max(sicakliklar) - min(sicakliklar)
-    model["yagmurlu_gun"] = sum(1 for g in gunler if g["yagmurlu"])
+    model["yagmurlu_gun"] = sum(1 for g in gozlem if g["yagmurlu"])
     if not model["yeterli"]:
         return model
 
-    # Kendi verisi yeterliyse: hangi bileseni ekleyecegine model kendisi karar
-    # verir (LOOCV). Az veriyle (cold-start) bu adim atlanir; katsayilar yalnizca
-    # ortak havuzdan gelir.
+    # Kendi (sansursuz) verisi yeterliyse: hangi bileseni ekleyecegine model
+    # kendisi karar verir (LOOCV). Az veriyle (cold-start) bu adim atlanir;
+    # katsayilar yalnizca ortak havuzdan gelir.
     if kendi_yeterli:
-        secim, cv = _ozellik_sec(gunler)
-        ham = _ham_kur(gunler, secim)
+        secim, cv = _ozellik_sec(gozlem)
+        ham = _ham_kur(gozlem, secim)
         model["sicaklik"] = ham["sicaklik"]
         model["yagmur"] = ham["yagmur"]
         model["gun_katsayilari"] = ham["gun_katsayilari"]
@@ -439,7 +486,7 @@ def model_kur_gunlerden(gunler, onsel=None):
 
     # Ortak havuz: olcek-bagimsiz katsayilari onsele dogru buz (seviye dukkandan).
     if onsel:
-        _onsel_harmanla(model, gunler, onsel)
+        _onsel_harmanla(model, gozlem, onsel)
         if model["hata_payi"] <= 0:
             # Cold-start: kendi hata olcusu yok; makul bir baslangic aralik.
             model["hata_payi"] = model["ortalama"] * 0.25
@@ -1020,23 +1067,30 @@ def gunluk_guncelle(baglanti):
 
 
 def tahmin_gunlugu(baglanti, limit=60):
-    """Tahmin gunlugunu yeni gunden eskiye okur; sapma yuzdesini hesaplar."""
+    """Tahmin gunlugunu yeni gunden eskiye okur; sapma yuzdesini hesaplar.
+
+    Urun tukenen (sansurlu) gunler isaretlenir; o gunlerde gerceklesen talebin
+    yalniz alt sinirini gordugumuz icin sapma/isabet olcumune katilmazlar.
+    """
     satirlar = baglanti.execute(
         "SELECT tarih, tahmin, alt, ust, gercek, model_gun, yeterli, sicaklik, yagmurlu"
         " FROM tahmin_kayitlari ORDER BY tarih DESC LIMIT ?", (limit,)
     ).fetchall()
+    sansur = _sansurlu_gunler(baglanti)
     sonuc = []
     for s in satirlar:
+        sansurlu = s["tarih"] in sansur
         sapma = None
-        if s["tahmin"] is not None and s["gercek"] is not None and s["gercek"] > 0:
+        if (not sansurlu and s["tahmin"] is not None
+                and s["gercek"] is not None and s["gercek"] > 0):
             sapma = abs(s["tahmin"] - s["gercek"]) / s["gercek"] * 100
         sonuc.append({
             "tarih": s["tarih"], "tahmin": s["tahmin"], "alt": s["alt"], "ust": s["ust"],
             "gercek": s["gercek"], "model_gun": s["model_gun"],
             "yeterli": bool(s["yeterli"]), "sicaklik": s["sicaklik"],
-            "yagmurlu": bool(s["yagmurlu"]), "sapma": sapma,
-            # Tahmin, araligin icinde mi tutturdu?
-            "isabet": (s["tahmin"] is not None and s["gercek"] is not None
+            "yagmurlu": bool(s["yagmurlu"]), "sapma": sapma, "sansurlu": sansurlu,
+            # Tahmin, araligin icinde mi tutturdu? (sansurlu gun olcume girmez)
+            "isabet": (not sansurlu and s["tahmin"] is not None and s["gercek"] is not None
                        and s["alt"] is not None and s["ust"] is not None
                        and s["alt"] <= s["gercek"] <= s["ust"]),
         })
@@ -1309,7 +1363,9 @@ def karsilastir(baglanti):
         egitim = gunler[:n]
         hedef = gunler[n]
         gercek = hedef["ciro"]
-        if gercek <= 0:
+        # Sansurlu (urun tukenmis) gun test edilmez: gerceklesen talebin yalniz
+        # alt siniri; modeli bununla cezalandirmak haksiz olur.
+        if gercek <= 0 or hedef.get("sansurlu"):
             continue
         for a, ad, fn in TEMEL_MODELLER:
             d = durum[a]
@@ -1448,5 +1504,10 @@ def durum_metni(model, baglanti=None):
                               etiket=etiket, kat=f"{kat:.2f}", adet=adet))
     else:
         parcalar.append(C("özel gün etkisi çapraz doğrulamada seçilmedi"))
+
+    if model.get("sansurlu_gun"):
+        parcalar.append(C("{n} gün ürün tükendiği için 'sansürlü' sayıldı ve modele "
+                          "alınmadı — o günlerde gerçek talep satıştan yüksek olabilir",
+                          n=model["sansurlu_gun"]))
 
     return " · ".join(parcalar) + "."
