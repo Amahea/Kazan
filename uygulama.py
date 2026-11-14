@@ -4534,6 +4534,7 @@ def hava_bekcisi():
     acilan yeni bir dukkan da boylece kendiliginden sıraya girer.
     """
     while True:
+        profiller = []
         for dukkan_id in _dukkan_kimlikleri():
             if not os.path.exists(veritabani.db_yolu(dukkan_id)):
                 continue
@@ -4541,10 +4542,19 @@ def hava_bekcisi():
             try:
                 if hava.sehir_secili_mi(baglanti):
                     hava.guncelle(baglanti)
+                # Dukkanlar arasi ogrenme: her dukkanin olcek-bagimsiz katsayi
+                # profili toplanir; dongu sonunda ortak havuz guncellenir.
+                profiller.append(tahmin_modulu._katsayi_profili(
+                    tahmin_modulu.model_kur(baglanti)))
             except Exception:
                 traceback.print_exc()
             finally:
                 baglanti.close()
+        try:
+            tahmin_modulu.ortak_onsel_yaz(
+                tahmin_modulu.ortak_onsel_hesapla(profiller))
+        except Exception:
+            traceback.print_exc()
         time.sleep(3 * 60 * 60)
 
 

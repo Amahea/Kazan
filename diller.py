@@ -1380,6 +1380,13 @@ SOZLUK = {
     "doğrulamayla kendisi karar verdi":
         "looks at {gun} days of sales history; it decided which component to use "
         "by cross-validation itself",
+    "{gun} günlük kendi verin var; henüz az olduğu için sıcaklık, yağmur ve "
+    "hafta sonu etkisini diğer dükkânların öğrendiği katsayılardan ödünç "
+    "alıyorum (ciro değil, yalnız katsayı). Kendi verin biriktikçe ağırlık sana kayar.":
+        "You have {gun} days of your own data; since it's still little, I borrow "
+        "the temperature, rain and weekend effects from coefficients other shops "
+        "have learned (coefficients only, never revenue). As your own data grows, "
+        "the weight shifts to you.",
     "sıcaklığı aldı: her 1 derece günlük ciroyu ortalama {deger} birim değiştiriyor":
         "took temperature: each 1 degree changes daily revenue by about {deger} units",
     "sıcaklığı denedi ama hatayı düşürmedi, kullanmıyor":

@@ -28,16 +28,29 @@ lazim" der. Uydurma bir rakam vermektense susmak dogrusu.
 """
 
 import datetime
+import json
 import math
+import os
 
 import hava
 import hesap
 import takvim
+import veritabani
 
-EN_AZ_GUN = 10           # bunun altinda hic tahmin yok (durustluk esigi)
+EN_AZ_GUN = 10           # kendi verisiyle tahmin esigi (havuz yoksa)
 EN_AZ_ETIKET_GUN = 3     # bir ozel gun etiketi aday olabilmek icin en az bu kadar gun
 EN_DUSUK_CARPAN = 0.2    # gun + etiket carpanlarinin ortak tabani
 EN_YUKSEK_CARPAN = 5.0   # ve tavani (asagidaki _gun_carpani'na bak)
+
+# ---- dukkanlar arasi ogrenme (transfer / hiyerarsik buzme) ----
+# Yeterli verisi olan dukkanlarin OLCEK-BAGIMSIZ katsayilari (sicakliga
+# duyarlilik, yagmur orani, hafta sonu carpani) ortak bir havuzda toplanir; yeni
+# dukkan bunlari baslangic degeri alir ve kendi verisi biriktikce agirlik ona
+# kayar (w = kendi_gun / (kendi_gun + ORTAK_K)). Dukkanlar arasinda yalnizca bu
+# oran/carpanlar dolasir; ciro/kasa ASLA dolasmaz (seviye hep dukkanin kendisi).
+ORTAK_K = 20.0           # onsel gucu (gun): bu kadar kendi gununde yari-yariya
+EN_AZ_ONSEL_GUN = 3      # havuz varken en az bu kadar gunle tahmin baslar
+ORTAK_DOSYA = os.path.join(veritabani.VERI_KLASORU, "ortak_katsayilar.json")
 
 # NOT: Eskiden burada "sicaklik icin 14 gun, haftanin gunu icin 28 gun" gibi elle
 # konmus esikler vardi. Artik her bilesen bir-disarida capraz dogrulamayla (LOOCV)
@@ -206,12 +219,168 @@ def gecmis_gunler(baglanti):
 
 # ---------------------------------------------------------------- model
 
-def model_kur(baglanti):
-    """Gecmisten katsayilari cikarir. Her zaman bir sozluk doner."""
-    return model_kur_gunlerden(gecmis_gunler(baglanti))
+# ---------------------------------------------------------------- ortak onsel
+
+def _hafta_sonu_degeri(model):
+    """Modelin hafta sonu carpani (hafta sonu / hafta ici orani), varsa."""
+    if model["hafta_sonu_katsayisi"] is not None:
+        return model["hafta_sonu_katsayisi"]
+    gk = model["gun_katsayilari"]
+    if gk:
+        sonu = [gk[g] for g in (5, 6) if g in gk]
+        ici = [gk[g] for g in range(5) if g in gk]
+        if sonu and ici:
+            b = sum(ici) / len(ici)
+            if b > 1e-9:
+                return (sum(sonu) / len(sonu)) / b
+    return None
 
 
-def model_kur_gunlerden(gunler):
+def _katsayi_profili(model):
+    """Bir dukkanin OLCEK-BAGIMSIZ (transfer edilebilir) katsayilari.
+
+    Yalnizca oran/carpanlar: sicakliga oransal duyarlilik (egim/ortalama),
+    yagmur orani, hafta sonu carpani. Ciro seviyesi burada YOK. Dukkanin modeli
+    'yeterli' degilse (az veri) profile girmez -- cold-start dukkan havuzu
+    kirletmesin.
+    """
+    if not model["yeterli"] or model["ortalama"] <= 0:
+        return None
+    prof = {"gun_sayisi": model["gun_sayisi"]}
+    if model["sicaklik"]:
+        prof["sicaklik_rel"] = model["sicaklik"][0] / model["ortalama"]
+    if model["yagmur"]:
+        prof["yagmur_rel"] = model["yagmur"][0]
+        prof["yagmur_islak"] = model["yagmur"][1]
+    hs = _hafta_sonu_degeri(model)
+    if hs is not None:
+        prof["hafta_sonu"] = hs
+    return prof
+
+
+def ortak_onsel_hesapla(profiller):
+    """Dukkan profillerinden ortak onsel (veri miktarina gore agirlikli ortalama).
+
+    En az iki dukkan gerekir ki 'diger dukkanlar' anlamli olsun. Cok verili bir
+    dukkan havuzu ezmesin diye agirlik ~120 gunde doyar.
+    """
+    profiller = [p for p in profiller if p]
+    if len(profiller) < 2:
+        return None
+
+    def agirlikli(anahtar):
+        pay = toplam = 0.0
+        for p in profiller:
+            if anahtar in p:
+                w = min(p.get("gun_sayisi", 0), 120)
+                pay += p[anahtar] * w
+                toplam += w
+        return (pay / toplam) if toplam > 1e-9 else None
+
+    onsel = {}
+    for a in ("sicaklik_rel", "yagmur_rel", "yagmur_islak", "hafta_sonu"):
+        v = agirlikli(a)
+        if v is not None:
+            onsel[a] = v
+    if not any(k in onsel for k in ("sicaklik_rel", "yagmur_rel", "hafta_sonu")):
+        return None
+    onsel["dukkan_sayisi"] = len(profiller)
+    onsel["uretildi"] = _simdi()
+    return onsel
+
+
+def ortak_onsel_yaz(onsel):
+    """Ortak onseli paylasilan JSON dosyasina yazar (dukkanlar arasi tek dosya)."""
+    try:
+        with open(ORTAK_DOSYA, "w", encoding="utf-8") as f:
+            json.dump(onsel or {}, f)
+    except OSError:
+        pass
+
+
+def ortak_onsel_yukle():
+    """Paylasilan ortak onseli okur; yoksa/bos ise None."""
+    try:
+        with open(ORTAK_DOSYA, encoding="utf-8") as f:
+            veri = json.load(f)
+        return veri or None
+    except (OSError, ValueError):
+        return None
+
+
+def ortak_onsel_uret(baglantilar):
+    """Butun dukkanlarin ham modellerinden ortak onseli uretir ve dosyaya yazar.
+
+    Arka plan isi periyodik cagirir. Ham model = onselsiz (kendi verisi);
+    boylece ciro degil yalnizca olcek-bagimsiz katsayilar havuza girer.
+    """
+    profiller = []
+    for b in baglantilar:
+        try:
+            profiller.append(_katsayi_profili(model_kur(b)))
+        except Exception:
+            pass
+    onsel = ortak_onsel_hesapla(profiller)
+    ortak_onsel_yaz(onsel)
+    return onsel
+
+
+# ---------------------------------------------------------------- model
+
+def model_kur(baglanti, onsel=None):
+    """Gecmisten katsayilari cikarir. Her zaman bir sozluk doner.
+
+    onsel verilirse (ortak_onsel_yukle ile), az verili bir dukkan diger
+    dukkanlarin katsayilarini baslangic alir; kendi verisi biriktikce agirlik
+    kendine kayar (bkz. _onsel_harmanla).
+    """
+    return model_kur_gunlerden(gecmis_gunler(baglanti), onsel)
+
+
+def _onsel_harmanla(model, gunler, onsel):
+    """Modelin olcek-bagimsiz katsayilarini ortak onsele dogru buzer.
+
+    Her bilesen icin w = n / (n + ORTAK_K); kendi tahmini (yoksa notr) ile onsel
+    bu agirlikla karisir. Sicaklikta 'oransal egim' karisir, sonra dukkanin KENDI
+    ortalamasina olceklenir -- seviye dukkandan, sekil havuzdan. Ne kadar odunc
+    alindigi (1-w) durum_metni icin saklanir.
+    """
+    n = model["gun_sayisi"]
+    ort = model["ortalama"]
+    if ort <= 0:
+        return
+    sic = [g["sicaklik"] for g in gunler]
+    ort_sic = sum(sic) / len(sic) if sic else 20.0
+
+    if "sicaklik_rel" in onsel:
+        own = (model["sicaklik"][0] / ort) if model["sicaklik"] else 0.0
+        w = n / (n + ORTAK_K)
+        rel = w * own + (1 - w) * onsel["sicaklik_rel"]
+        if abs(rel) > 1e-12:
+            egim = rel * ort
+            model["sicaklik"] = (egim, ort - egim * ort_sic)   # dukkanin seviyesine capa
+        model["onsel_sicaklik"] = 1 - w
+
+    if "yagmur_rel" in onsel:
+        own = model["yagmur"][0] if model["yagmur"] else 1.0
+        nw = model["yagmurlu_gun"]
+        w = nw / (nw + ORTAK_K)
+        rel = _kirp(w * own + (1 - w) * onsel["yagmur_rel"], 0.3, 1.5)
+        islak = model["yagmur"][1] if model["yagmur"] else onsel.get("yagmur_islak", 0.3)
+        model["yagmur"] = (rel, islak)
+        model["onsel_yagmur"] = 1 - w
+
+    if "hafta_sonu" in onsel and not model["gun_katsayilari"]:
+        own = model["hafta_sonu_katsayisi"]
+        ns = sum(1 for g in gunler if g["gun"] >= 5)
+        w = ns / (ns + ORTAK_K)
+        own_v = own if own is not None else 1.0
+        model["hafta_sonu_katsayisi"] = _kirp(
+            w * own_v + (1 - w) * onsel["hafta_sonu"], 0.4, 2.5)
+        model["onsel_hafta_sonu"] = 1 - w
+
+
+def model_kur_gunlerden(gunler, onsel=None):
     """Verilen gun kayit listesinden modeli kurar.
 
     model_kur bunu butun gecmisle cagirir; geriye donuk test ise ilk N gunle
@@ -230,11 +399,19 @@ def model_kur_gunlerden(gunler):
         "gun_katsayilari": {},
         "etiket_katsayilari": {},    # {etiket: (katsayi, gun_sayisi)}
         "hata_payi": 0.0,
-        "yeterli": len(gunler) >= EN_AZ_GUN,
+        # Yeterli: kendi verisiyle EN_AZ_GUN, ya da ortak havuz varken
+        # EN_AZ_ONSEL_GUN. Havuz, ilk gunlerdeki "tahmin yok" bosluguну kapatir.
+        "yeterli": False,
         "eksik_gun": max(0, EN_AZ_GUN - len(gunler)),
         "secim": {"sicaklik": False, "yagmur": False, "gun": "yok", "etiketler": set()},
         "cv": None,
+        "onsel": bool(onsel),       # havuz kullanildi mi (durum_metni icin)
     }
+    kendi_yeterli = len(gunler) >= EN_AZ_GUN
+    havuz_yeterli = bool(onsel) and len(gunler) >= EN_AZ_ONSEL_GUN
+    model["yeterli"] = kendi_yeterli or havuz_yeterli
+    if onsel:
+        model["eksik_gun"] = max(0, EN_AZ_ONSEL_GUN - len(gunler))
     if not gunler:
         return model
 
@@ -245,21 +422,27 @@ def model_kur_gunlerden(gunler):
     if not model["yeterli"]:
         return model
 
-    # Hangi bileseni ekleyecegine model kendisi karar verir: her bileseni
-    # bir-disarida capraz dogrulamayla (LOOCV) siner, yalnizca hatayi
-    # dusurduyse alir. Elle konmus "sicaklik icin 14 gun, gun icin 28 gun"
-    # esiklerinin yerini bu aldi -- karari artik veri veriyor. Az veriyle bir
-    # bilesen ezberden oteye gecemezse CV onu zaten reddeder; felsefeyle birebir.
-    secim, cv = _ozellik_sec(gunler)
-    ham = _ham_kur(gunler, secim)
-    model["sicaklik"] = ham["sicaklik"]
-    model["yagmur"] = ham["yagmur"]
-    model["gun_katsayilari"] = ham["gun_katsayilari"]
-    model["hafta_sonu_katsayisi"] = ham["hafta_sonu_katsayisi"]
-    model["etiket_katsayilari"] = ham["etiket_katsayilari"]
-    model["hata_payi"] = ham["hata_payi"]
-    model["secim"] = secim
-    model["cv"] = cv
+    # Kendi verisi yeterliyse: hangi bileseni ekleyecegine model kendisi karar
+    # verir (LOOCV). Az veriyle (cold-start) bu adim atlanir; katsayilar yalnizca
+    # ortak havuzdan gelir.
+    if kendi_yeterli:
+        secim, cv = _ozellik_sec(gunler)
+        ham = _ham_kur(gunler, secim)
+        model["sicaklik"] = ham["sicaklik"]
+        model["yagmur"] = ham["yagmur"]
+        model["gun_katsayilari"] = ham["gun_katsayilari"]
+        model["hafta_sonu_katsayisi"] = ham["hafta_sonu_katsayisi"]
+        model["etiket_katsayilari"] = ham["etiket_katsayilari"]
+        model["hata_payi"] = ham["hata_payi"]
+        model["secim"] = secim
+        model["cv"] = cv
+
+    # Ortak havuz: olcek-bagimsiz katsayilari onsele dogru buz (seviye dukkandan).
+    if onsel:
+        _onsel_harmanla(model, gunler, onsel)
+        if model["hata_payi"] <= 0:
+            # Cold-start: kendi hata olcusu yok; makul bir baslangic aralik.
+            model["hata_payi"] = model["ortalama"] * 0.25
     return model
 
 
@@ -753,7 +936,7 @@ def ileri_tahmin(baglanti, gun_sayisi=7):
 
     Doner: (model, [gun tahminleri], uretim onerileri)
     """
-    model = model_kur(baglanti)
+    model = model_kur(baglanti, ortak_onsel_yukle())   # dukkanlar arasi ogrenme
     if not model["yeterli"]:
         return model, [], []
 
@@ -810,7 +993,7 @@ def gunluk_guncelle(baglanti):
         "SELECT 1 FROM tahmin_kayitlari WHERE tarih = ?", (bugun,)
     ).fetchone()
     if not var:
-        model = model_kur(baglanti)
+        model = model_kur(baglanti, ortak_onsel_yukle())
         hava_satiri = hava.gun(baglanti, bugun)
         gun_no = _tarihe_cevir(bugun).weekday()
         etiketler = takvim.etiket_haritasi(baglanti, bugun, bugun).get(bugun, set())
@@ -1217,8 +1400,18 @@ def durum_metni(model, baglanti=None):
                  "başlayacak.", gun=model['gun_sayisi'], en_az=EN_AZ_GUN,
                  eksik=model['eksik_gun'])
 
-    parcalar = [C("{gun} günlük satış geçmişine bakıyor; hangi bileşeni kullanacağına "
-                  "çapraz doğrulamayla kendisi karar verdi", gun=model['gun_sayisi'])]
+    odunc = max(model.get("onsel_sicaklik", 0.0), model.get("onsel_yagmur", 0.0),
+                model.get("onsel_hafta_sonu", 0.0))
+    if model.get("onsel") and (model["gun_sayisi"] < EN_AZ_GUN or odunc > 0.3):
+        # Dukkanlar arasi ogrenme: az veride diger dukkanlarin katsayilariyla baslar.
+        parcalar = [C("{gun} günlük kendi verin var; henüz az olduğu için "
+                      "sıcaklık, yağmur ve hafta sonu etkisini diğer dükkânların "
+                      "öğrendiği katsayılardan ödünç alıyorum (ciro değil, yalnız "
+                      "katsayı). Kendi verin biriktikçe ağırlık sana kayar.",
+                      gun=model['gun_sayisi'])]
+    else:
+        parcalar = [C("{gun} günlük satış geçmişine bakıyor; hangi bileşeni kullanacağına "
+                      "çapraz doğrulamayla kendisi karar verdi", gun=model['gun_sayisi'])]
 
     if model["sicaklik"]:
         deger = f"{model['sicaklik'][0]:,.0f}".replace(",", ".")

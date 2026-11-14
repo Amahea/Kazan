@@ -30,3 +30,6 @@ build/
 dist/
 *.spec
 dagitim/*.zip
+
+# Dükkanlar arası öğrenmenin ürettiği ortak katsayı havuzu (veri, kod değil)
+ortak_katsayilar.json
